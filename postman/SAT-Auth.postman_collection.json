@@ -1,0 +1,143 @@
+{
+  "info": {
+    "_postman_id": "3cdb18cb-e25d-4c82-a7c9-76bbf864dc97",
+    "name": "SAT - Auth (Login + Doble Factor)",
+    "description": "Flujo de autenticacion en 3 pasos: login (usuario/contrasena), verificacion de doble factor por SMS, y obtencion del JWT final. Incluye tambien el endpoint de captcha.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000", "type": "string" },
+    { "key": "correoElectronico", "value": "", "type": "string" },
+    { "key": "contrasena", "value": "", "type": "string" },
+    { "key": "captcha", "value": "", "type": "string" },
+    { "key": "preAuthToken", "value": "", "type": "string" },
+    { "key": "codigo", "value": "", "type": "string" },
+    { "key": "token", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "_postman_id": "062d0322-3b6c-4547-aeb1-93cc15fe6a8a",
+      "name": "1. Obtener Captcha",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/auth/captcha",
+          "host": ["{{base_url}}"],
+          "path": ["api", "auth", "captcha"]
+        },
+        "description": "Devuelve una imagen SVG con el captcha y lo guarda (por IP) en la tabla Captcha. Completa la variable 'captcha' con el texto que se ve en la imagen antes de hacer login."
+      },
+      "response": []
+    },
+    {
+      "_postman_id": "2e9cdfb4-136a-48ae-b461-743855e4f6f9",
+      "name": "2. Login (paso 1: usuario y contrasena)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "",
+              "pm.test('Respuesta contiene preAuthToken', function () {",
+              "    pm.expect(jsonData.data).to.have.property('preAuthToken');",
+              "});",
+              "",
+              "if (jsonData.data && jsonData.data.preAuthToken) {",
+              "    pm.collectionVariables.set('preAuthToken', jsonData.data.preAuthToken);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"correoElectronico\": \"{{correoElectronico}}\",\n  \"contrasena\": \"{{contrasena}}\",\n  \"captcha\": \"{{captcha}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login",
+          "host": ["{{base_url}}"],
+          "path": ["api", "auth", "login"]
+        },
+        "description": "Verifica el captcha (debe haberse solicitado antes con el mismo IP) y las credenciales. Si son validas, dispara el envio del codigo de doble factor por SMS y devuelve un preAuthToken de corta duracion (se guarda automaticamente en la variable de coleccion 'preAuthToken')."
+      },
+      "response": []
+    },
+    {
+      "_postman_id": "83542386-e582-4321-bb49-c4276a3444bf",
+      "name": "3. Reenviar codigo de doble factor (opcional)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"preAuthToken\": \"{{preAuthToken}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/2fa/reenviar",
+          "host": ["{{base_url}}"],
+          "path": ["api", "auth", "2fa", "reenviar"]
+        },
+        "description": "Reenvia un nuevo codigo de verificacion usando el preAuthToken obtenido en el login, sin necesidad de volver a enviar usuario/contrasena. Util si el codigo anterior expiro."
+      },
+      "response": []
+    },
+    {
+      "_postman_id": "ca00f8bc-ac6a-402c-ba72-10b8654784be",
+      "name": "4. Verificar doble factor (paso 2: codigo SMS)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "",
+              "pm.test('Respuesta contiene token', function () {",
+              "    pm.expect(jsonData.data).to.have.property('token');",
+              "});",
+              "",
+              "if (jsonData.data && jsonData.data.token) {",
+              "    pm.collectionVariables.set('token', jsonData.data.token);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"preAuthToken\": \"{{preAuthToken}}\",\n  \"codigo\": \"{{codigo}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/2fa/verificar",
+          "host": ["{{base_url}}"],
+          "path": ["api", "auth", "2fa", "verificar"]
+        },
+        "description": "Paso 2 del login: valida el codigo de 6 digitos recibido por SMS contra el preAuthToken. Completa la variable 'codigo' con el valor recibido (o consultado en la tabla DobleFactor) antes de enviar. Si es correcto, devuelve el JWT final (paso 3) y lo guarda en la variable de coleccion 'token'."
+      },
+      "response": []
+    }
+  ]
+}

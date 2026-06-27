@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Persona {
+  id                 Int      @id @default(autoincrement())
+  nombres            String
+  apellidos          String
+  documento          String   @unique
+  usuario            Usuario?
+  usuarioCreacionId  Int?
+  usuarioCreacion    Usuario? @relation("PersonaUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId Int?
+  usuarioActualizacion   Usuario? @relation("PersonaUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+}
+
+model Usuario {
+  id                            Int       @id @default(autoincrement())
+  correoElectronico             String    @unique
+  telefono                      String
+  hashContrasena                String
+  activo                        Boolean   @default(true)
+  personaId                     Int       @unique
+  persona                       Persona   @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  roles                         Rol[]
+  usuarioCreacionId             Int?
+  usuarioCreacion               Usuario?  @relation("UsuarioUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuariosCreados               Usuario[] @relation("UsuarioUsuarioCreacion")
+  usuarioActualizacionId        Int?
+  usuarioActualizacion          Usuario?  @relation("UsuarioUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  usuariosActualizados          Usuario[] @relation("UsuarioUsuarioActualizacion")
+  personasCreadas               Persona[] @relation("PersonaUsuarioCreacion")
+  personasActualizadas          Persona[] @relation("PersonaUsuarioActualizacion")
+  rolesCreados                  Rol[]     @relation("RolUsuarioCreacion")
+  rolesActualizados             Rol[]     @relation("RolUsuarioActualizacion")
+  permisosCreados               Permiso[] @relation("PermisoUsuarioCreacion")
+  permisosActualizados          Permiso[] @relation("PermisoUsuarioActualizacion")
+  rolesPermisosCreados          RolPermiso[] @relation("RolPermisoUsuarioCreacion")
+  rolesPermisosActualizados     RolPermiso[] @relation("RolPermisoUsuarioActualizacion")
+  dobleFactores                 DobleFactor[]
+  fechaCreacion                 DateTime  @default(now())
+  fechaActualizacion            DateTime  @updatedAt
+}
+
+model Rol {
+  id                        Int       @id @default(autoincrement())
+  nombre                    String
+  descripcion               String?
+  usuarioId                 Int
+  usuario                   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  rolPermisos               RolPermiso[]
+  usuarioCreacionId         Int?
+  usuarioCreacion           Usuario?  @relation("RolUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId    Int?
+  usuarioActualizacion      Usuario?  @relation("RolUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion             DateTime  @default(now())
+  fechaActualizacion        DateTime  @updatedAt
+
+  @@unique([usuarioId, nombre])
+}
+
+model Permiso {
+  id                        Int       @id @default(autoincrement())
+  nombre                    String    @unique
+  descripcion               String?
+  rolPermisos               RolPermiso[]
+  usuarioCreacionId         Int?
+  usuarioCreacion           Usuario?  @relation("PermisoUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId    Int?
+  usuarioActualizacion      Usuario?  @relation("PermisoUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion             DateTime  @default(now())
+  fechaActualizacion        DateTime  @updatedAt
+}
+
+model Captcha {
+  id            Int      @id @default(autoincrement())
+  ip            String
+  captcha       String
+  fechaCreacion DateTime @default(now())
+}
+
+model DobleFactor {
+  id            Int      @id @default(autoincrement())
+  usuarioId     Int
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  codigo        String
+  intentos      Int      @default(0)
+  expiracion    DateTime
+  fechaCreacion DateTime @default(now())
+}
+
+model RolPermiso {
+  rolId                     Int
+  permisoId                 Int
+  rol                       Rol       @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  permiso                   Permiso   @relation(fields: [permisoId], references: [id], onDelete: Cascade)
+  usuarioCreacionId         Int?
+  usuarioCreacion           Usuario?  @relation("RolPermisoUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId    Int?
+  usuarioActualizacion      Usuario?  @relation("RolPermisoUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion             DateTime  @default(now())
+  fechaActualizacion        DateTime  @updatedAt
+
+  @@id([rolId, permisoId])
+}
