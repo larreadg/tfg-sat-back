@@ -7,6 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Canal {
+  WEB
+  WHATSAPP
+}
+
+enum TipoPregunta {
+  ELECCION_UNICA
+  ELECCION_MULTIPLE
+  FOTO
+}
+
 model Persona {
   id                 Int      @id @default(autoincrement())
   nombres            String
@@ -45,6 +56,16 @@ model Usuario {
   rolesPermisosCreados          RolPermiso[] @relation("RolPermisoUsuarioCreacion")
   rolesPermisosActualizados     RolPermiso[] @relation("RolPermisoUsuarioActualizacion")
   dobleFactores                 DobleFactor[]
+  preguntasCreadas              Pregunta[]         @relation("PreguntaUsuarioCreacion")
+  preguntasActualizadas         Pregunta[]         @relation("PreguntaUsuarioActualizacion")
+  preguntaOpcionesCreadas       PreguntaOpcion[]   @relation("PreguntaOpcionUsuarioCreacion")
+  preguntaOpcionesActualizadas  PreguntaOpcion[]   @relation("PreguntaOpcionUsuarioActualizacion")
+  usuariosCiudadanosCreados      UsuarioCiudadano[] @relation("UsuarioCiudadanoUsuarioCreacion")
+  usuariosCiudadanosActualizados UsuarioCiudadano[] @relation("UsuarioCiudadanoUsuarioActualizacion")
+  encuestasCreadas               Encuesta[]         @relation("EncuestaUsuarioCreacion")
+  encuestasActualizadas          Encuesta[]         @relation("EncuestaUsuarioActualizacion")
+  respuestasCreadas              Respuesta[]        @relation("RespuestaUsuarioCreacion")
+  respuestasActualizadas         Respuesta[]        @relation("RespuestaUsuarioActualizacion")
   fechaCreacion                 DateTime  @default(now())
   fechaActualizacion            DateTime  @updatedAt
 }
@@ -109,4 +130,120 @@ model RolPermiso {
   fechaActualizacion        DateTime  @updatedAt
 
   @@id([rolId, permisoId])
+}
+
+model Encuesta {
+  id                        Int                @id @default(autoincrement())
+  nombre                    String
+  descripcion               String?
+  activo                    Boolean            @default(true)
+  preguntas                 EncuestaPregunta[]
+  respuestas                Respuesta[]
+  usuarioCreacionId         Int?
+  usuarioCreacion           Usuario?           @relation("EncuestaUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId    Int?
+  usuarioActualizacion      Usuario?           @relation("EncuestaUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion             DateTime           @default(now())
+  fechaActualizacion        DateTime           @updatedAt
+}
+
+model EncuestaPregunta {
+  encuestaId    Int
+  encuesta      Encuesta @relation(fields: [encuestaId], references: [id], onDelete: Cascade)
+  preguntaId    Int
+  pregunta      Pregunta @relation(fields: [preguntaId], references: [id], onDelete: Cascade)
+  orden         Int      @default(0)
+  fechaCreacion DateTime @default(now())
+
+  @@id([encuestaId, preguntaId])
+}
+
+model Pregunta {
+  id                        Int              @id @default(autoincrement())
+  texto                     String
+  tipo                      TipoPregunta     @default(ELECCION_UNICA)
+  activo                    Boolean          @default(true)
+  encuestas                 EncuestaPregunta[]
+  opciones                  PreguntaOpcion[]
+  respuestas                Respuesta[]
+  usuarioCreacionId         Int?
+  usuarioCreacion           Usuario?         @relation("PreguntaUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId    Int?
+  usuarioActualizacion      Usuario?         @relation("PreguntaUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion             DateTime         @default(now())
+  fechaActualizacion        DateTime         @updatedAt
+}
+
+model PreguntaOpcion {
+  id                        Int        @id @default(autoincrement())
+  preguntaId                Int
+  pregunta                  Pregunta   @relation(fields: [preguntaId], references: [id], onDelete: Cascade)
+  texto                     String
+  orden                     Int        @default(0)
+  activo                    Boolean    @default(true)
+  respuestas                RespuestaOpcion[]
+  usuarioCreacionId         Int?
+  usuarioCreacion           Usuario?   @relation("PreguntaOpcionUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId    Int?
+  usuarioActualizacion      Usuario?   @relation("PreguntaOpcionUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion             DateTime   @default(now())
+  fechaActualizacion        DateTime   @updatedAt
+}
+
+model ValidacionSms {
+  id                   Int               @id @default(autoincrement())
+  telefono             String
+  ip                   String
+  codigo               String
+  intentos             Int               @default(0)
+  expiracion           DateTime
+  verificado           Boolean           @default(false)
+  usuarioCiudadanoId   Int?
+  usuarioCiudadano     UsuarioCiudadano? @relation(fields: [usuarioCiudadanoId], references: [id])
+  respuestas           Respuesta[]
+  fechaCreacion        DateTime          @default(now())
+}
+
+model UsuarioCiudadano {
+  id                         Int              @id @default(autoincrement())
+  telefono                   String           @unique
+  validaciones               ValidacionSms[]
+  respuestas                 Respuesta[]
+  usuarioCreacionId          Int?
+  usuarioCreacion            Usuario?         @relation("UsuarioCiudadanoUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId     Int?
+  usuarioActualizacion       Usuario?         @relation("UsuarioCiudadanoUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion              DateTime         @default(now())
+  fechaActualizacion         DateTime         @updatedAt
+}
+
+model Respuesta {
+  id                        Int               @id @default(autoincrement())
+  canal                     Canal
+  encuestaId                Int
+  encuesta                  Encuesta          @relation(fields: [encuestaId], references: [id])
+  usuarioCiudadanoId        Int
+  usuarioCiudadano          UsuarioCiudadano  @relation(fields: [usuarioCiudadanoId], references: [id])
+  validacionSmsId           Int?
+  validacionSms             ValidacionSms?    @relation(fields: [validacionSmsId], references: [id])
+  preguntaId                Int
+  pregunta                  Pregunta          @relation(fields: [preguntaId], references: [id])
+  archivoUrl                String?
+  opciones                  RespuestaOpcion[]
+  usuarioCreacionId         Int?
+  usuarioCreacion           Usuario?          @relation("RespuestaUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId    Int?
+  usuarioActualizacion      Usuario?          @relation("RespuestaUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion             DateTime          @default(now())
+  fechaActualizacion        DateTime          @updatedAt
+}
+
+model RespuestaOpcion {
+  respuestaId      Int
+  respuesta        Respuesta      @relation(fields: [respuestaId], references: [id], onDelete: Cascade)
+  preguntaOpcionId Int
+  preguntaOpcion   PreguntaOpcion @relation(fields: [preguntaOpcionId], references: [id])
+  fechaCreacion    DateTime       @default(now())
+
+  @@id([respuestaId, preguntaOpcionId])
 }
