@@ -7,6 +7,7 @@ export async function generateCaptcha(ip: string): Promise<string> {
     color: true,
     noise: 4,
     charPreset: 'abcdefghijklmnpqrstuvwxyz123456789',
+    background: 'transparent',
   });
 
   await prisma.$transaction([

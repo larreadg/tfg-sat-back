@@ -1,0 +1,58 @@
+========================================================================
+CUESTIONARIO DE ALERTA TEMPRANA - REPORTE CIUDADANO
+Calidad de agua
+========================================================================
+
+Convenciones:
+  EU = respuesta unica (elige una opcion)
+  (*) = pregunta obligatoria
+  Las demas son opcionales / de contexto
+
+
+------------------------------------------------------------------------
+BLOQUE NUCLEO (obligatorio)
+------------------------------------------------------------------------
+
+p01 (*) - Que tipo de fuente o lugar esta reportando?  EU
+  1 - Canilla / grifo
+  2 - Pozo
+  3 - Tanque o reservorio
+  4 - Otro
+  5 - No se
+
+p02 (*) - Que color o aspecto tiene el agua?  EU
+  1 - Normal / sin cambios
+  2 - Amarilla o marron (hierro o sedimento)
+  3 - Verde (algas)
+  4 - Oscura, negra o gris (manganeso o sulfuros)
+  5 - Blanquecina o lechosa (turbidez o aire)
+  6 - Otro
+
+p03 (*) - El agua tiene algun olor distinto al habitual?  EU
+  1 - No, sin olor raro
+  2 - A cloro fuerte
+  3 - A huevo podrido / azufre
+  4 - A cloaca o desague
+  5 - A combustible o quimico
+  6 - A tierra o moho
+  7 - Otro
+
+p04 (*) - Notaste que el sabor del agua sea distinto al habitual?  EU
+  1 - Si, sabor raro
+  2 - Si, sabor salado
+  3 - No, igual que siempre
+  4 - No lo probe
+
+p05 (*) - Alguien tuvo malestar despues del contacto o consumo?  EU
+  1 - Si
+  2 - No
+  3 - No se
+
+p06 (*) - Desde cuando observa el problema?  EU
+  1 - Recien lo noto hoy
+  2 - Hace unos dias
+  3 - Hace una semana o mas
+  4 - Ya me habia pasado antes / es recurrente
+  5 - No se
+
+p07 (*) - Fotos (hasta 3)

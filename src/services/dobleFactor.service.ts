@@ -1,18 +1,11 @@
 import { prisma } from '../config/prisma';
 import { enviarSms } from './sms.service';
-import { NotFoundError, BadRequestError } from '../utils/errors';
+import { NotFoundError, BadRequestError, TooManyRequestsError } from '../utils/errors';
+import { generarCodigoNumerico } from '../utils/otp';
 
 const LONGITUD_CODIGO = 6;
 const EXPIRACION_MINUTOS = 5;
 const MAX_INTENTOS = 5;
-
-function generarCodigo(): string {
-  let codigo = '';
-  for (let i = 0; i < LONGITUD_CODIGO; i++) {
-    codigo += Math.floor(Math.random() * 10).toString();
-  }
-  return codigo;
-}
 
 export async function solicitarDobleFactor(usuarioId: number): Promise<void> {
   const usuario = await prisma.usuario.findUnique({ where: { id: usuarioId } });
@@ -21,7 +14,7 @@ export async function solicitarDobleFactor(usuarioId: number): Promise<void> {
     throw new NotFoundError(`Usuario con id ${usuarioId} no encontrado`);
   }
 
-  const codigo = generarCodigo();
+  const codigo = generarCodigoNumerico(LONGITUD_CODIGO);
   const expiracion = new Date(Date.now() + EXPIRACION_MINUTOS * 60 * 1000);
 
   await prisma.$transaction([
@@ -49,7 +42,7 @@ export async function verificarDobleFactor(usuarioId: number, codigo: string): P
 
   if (registro.intentos >= MAX_INTENTOS) {
     await prisma.dobleFactor.delete({ where: { id: registro.id } });
-    throw new BadRequestError('Se supero el numero maximo de intentos. Solicita un nuevo codigo.');
+    throw new TooManyRequestsError('Se supero el numero maximo de intentos. Solicita un nuevo codigo.');
   }
 
   if (registro.codigo !== codigo) {

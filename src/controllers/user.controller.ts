@@ -4,8 +4,18 @@ import { Response as ApiResponse } from '../utils/response';
 
 export async function getUsers(req: Request, res: ExpressResponse, next: NextFunction): Promise<void> {
   try {
-    const users = await userService.getAllUsers();
-    res.status(200).json(ApiResponse.success(200, users, 'Usuarios obtenidos correctamente.'));
+    const { page, limit, sort, activo } = req.query;
+
+    const result = await userService.getAllUsers({
+      page: page !== undefined ? Number(page) : undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+      sort: typeof sort === 'string' ? sort : undefined,
+      activo: activo !== undefined ? activo === 'true' : undefined,
+    });
+
+    res
+      .status(200)
+      .json(ApiResponse.success(200, result.data, 'Usuarios obtenidos correctamente.', result.meta));
   } catch (err) {
     next(err);
   }
@@ -44,7 +54,7 @@ export async function deleteUser(req: Request, res: ExpressResponse, next: NextF
   try {
     const id = Number(req.params.id);
     await userService.deleteUser(id);
-    res.status(200).json(ApiResponse.success(200, null, 'Usuario eliminado correctamente.'));
+    res.status(204).send();
   } catch (err) {
     next(err);
   }

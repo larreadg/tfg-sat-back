@@ -22,9 +22,9 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "{{base_url}}/api/auth/captcha",
+          "raw": "{{base_url}}/api/v1/auth/captcha",
           "host": ["{{base_url}}"],
-          "path": ["api", "auth", "captcha"]
+          "path": ["api", "v1", "auth", "captcha"]
         },
         "description": "Devuelve una imagen SVG con el captcha y lo guarda (por IP) en la tabla Captcha. Completa la variable 'captcha' con el texto que se ve en la imagen antes de hacer login."
       },
@@ -66,9 +66,9 @@
           "raw": "{\n  \"correoElectronico\": \"{{correoElectronico}}\",\n  \"contrasena\": \"{{contrasena}}\",\n  \"captcha\": \"{{captcha}}\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/auth/login",
+          "raw": "{{base_url}}/api/v1/auth/login",
           "host": ["{{base_url}}"],
-          "path": ["api", "auth", "login"]
+          "path": ["api", "v1", "auth", "login"]
         },
         "description": "Verifica el captcha (debe haberse solicitado antes con el mismo IP) y las credenciales. Si son validas, dispara el envio del codigo de doble factor por SMS y devuelve un preAuthToken de corta duracion (se guarda automaticamente en la variable de coleccion 'preAuthToken')."
       },
@@ -87,9 +87,9 @@
           "raw": "{\n  \"preAuthToken\": \"{{preAuthToken}}\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/auth/2fa/reenviar",
+          "raw": "{{base_url}}/api/v1/auth/2fa-codigos",
           "host": ["{{base_url}}"],
-          "path": ["api", "auth", "2fa", "reenviar"]
+          "path": ["api", "v1", "auth", "2fa-codigos"]
         },
         "description": "Reenvia un nuevo codigo de verificacion usando el preAuthToken obtenido en el login, sin necesidad de volver a enviar usuario/contrasena. Util si el codigo anterior expiro."
       },
@@ -131,9 +131,9 @@
           "raw": "{\n  \"preAuthToken\": \"{{preAuthToken}}\",\n  \"codigo\": \"{{codigo}}\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/auth/2fa/verificar",
+          "raw": "{{base_url}}/api/v1/auth/2fa-codigos/verificacion",
           "host": ["{{base_url}}"],
-          "path": ["api", "auth", "2fa", "verificar"]
+          "path": ["api", "v1", "auth", "2fa-codigos", "verificacion"]
         },
         "description": "Paso 2 del login: valida el codigo de 6 digitos recibido por SMS contra el preAuthToken. Completa la variable 'codigo' con el valor recibido (o consultado en la tabla DobleFactor) antes de enviar. Si es correcto, devuelve el JWT final (paso 3) y lo guarda en la variable de coleccion 'token'."
       },
