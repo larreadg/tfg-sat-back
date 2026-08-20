@@ -5,6 +5,7 @@ import https from 'https';
 import { env } from './config/env';
 import { crearApp } from './app';
 import { iniciarJobEvaluacionIa } from './modules/evaluaciones/evaluaciones.job';
+import { registrarComandosBot } from './modules/telegram/telegram.bootstrap';
 
 const app = crearApp();
 
@@ -24,3 +25,4 @@ server.listen(env.port, env.host, () => {
 });
 
 iniciarJobEvaluacionIa();
+void registrarComandosBot();

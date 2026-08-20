@@ -10,6 +10,7 @@ datasource db {
 enum Canal {
   WEB
   WHATSAPP
+  TELEGRAM
 }
 
 enum TipoPregunta {
@@ -242,6 +243,7 @@ model ValidacionSms {
 model UsuarioCiudadano {
   id                     Int             @id @default(autoincrement())
   telefono               String          @unique
+  telegramChatId         BigInt?         @unique
   validaciones           ValidacionSms[]
   respuestas             Respuesta[]
   usuarioCreacionId      Int?
@@ -323,4 +325,32 @@ model EvaluacionIaFoto {
   descripcion        String
   riesgoFoto         Int
   fechaCreacion      DateTime         @default(now())
+}
+
+/// Estado persistido de una conversacion del bot de Telegram. Vive en DB (no en
+/// memoria) para sobrevivir a reinicios del backend a mitad de una encuesta.
+/// Hay como maximo una conversacion por chat (chatId unico).
+model TelegramConversacion {
+  id                  Int      @id @default(autoincrement())
+  chatId              BigInt   @unique
+  estado              String
+  pasoActual          Int      @default(0)
+  encuestaId          Int?
+  telefono            String?
+  respuestasParciales Json     @default("{}")
+  ubicacionLat        Float?
+  ubicacionLng        Float?
+  fotoFileId          String?
+  messageId           Int?
+  expiracion          DateTime
+  fechaCreacion       DateTime @default(now())
+  fechaActualizacion  DateTime @updatedAt
+}
+
+/// Registro de update_id ya procesados para garantizar idempotencia: Telegram
+/// reintenta los updates si el webhook tarda o falla, y no queremos procesar el
+/// mismo dos veces.
+model TelegramUpdateProcesado {
+  updateId      BigInt   @id
+  fechaCreacion DateTime @default(now())
 }

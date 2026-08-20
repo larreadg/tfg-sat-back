@@ -13,6 +13,7 @@ export async function guardarRespuestas(
   ciudadano: CiudadanoSessionPayload,
   input: GuardarRespuestasInput,
   archivos: Express.Multer.File[],
+  canal: Canal = Canal.WEB,
 ): Promise<ReporteCreadoDTO> {
   const respuestaExistente = await prisma.respuesta.findFirst({
     where: { validacionSmsId: ciudadano.validacionSmsId },
@@ -81,7 +82,7 @@ export async function guardarRespuestas(
 
         const respuesta = await tx.respuesta.create({
           data: {
-            canal: Canal.WEB,
+            canal,
             encuestaId: encuesta.id,
             usuarioCiudadanoId: ciudadano.usuarioCiudadanoId,
             validacionSmsId: ciudadano.validacionSmsId,
@@ -108,7 +109,7 @@ export async function guardarRespuestas(
 
       const respuesta = await tx.respuesta.create({
         data: {
-          canal: Canal.WEB,
+          canal,
           encuestaId: encuesta.id,
           usuarioCiudadanoId: ciudadano.usuarioCiudadanoId,
           validacionSmsId: ciudadano.validacionSmsId,

@@ -27,12 +27,33 @@ interface EnvConfig {
   evaluacionIaCronExpr: string;
   evaluacionIaBatchSize: number;
   evaluacionIaMaxIntentos: number;
+  telegramEnabled: boolean;
+  telegramBotToken: string;
+  telegramWebhookSecret: string;
+  telegramWebhookPath: string;
+  telegramSesionExpiracionHoras: number;
 }
 
 function getEnvVar(key: string): string {
   const value = process.env[key];
   if (!value) {
     throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+/**
+ * Igual que getEnvVar pero solo exige la variable cuando `requerida` es true.
+ * Se usa para la config de Telegram: si `TELEGRAM_ENABLED` no esta activo, el
+ * token/secret son opcionales y la app arranca igual. Nunca se loguea el valor.
+ */
+function getEnvVarCondicional(key: string, requerida: boolean): string {
+  const value = process.env[key];
+  if (!value) {
+    if (requerida) {
+      throw new Error(`Missing required environment variable: ${key} (requerida cuando TELEGRAM_ENABLED=true)`);
+    }
+    return '';
   }
   return value;
 }
@@ -48,6 +69,8 @@ function getEnvInt(key: string, defaultValue: number): number {
   }
   return parsed;
 }
+
+const TELEGRAM_ENABLED = process.env.TELEGRAM_ENABLED === 'true';
 
 export const env: EnvConfig = {
   port: getEnvInt('PORT', 3000),
@@ -74,4 +97,9 @@ export const env: EnvConfig = {
   evaluacionIaCronExpr: process.env.EVALUACION_IA_CRON || '*/2 * * * *',
   evaluacionIaBatchSize: getEnvInt('EVALUACION_IA_BATCH_SIZE', 5),
   evaluacionIaMaxIntentos: getEnvInt('EVALUACION_IA_MAX_INTENTOS', 3),
+  telegramEnabled: TELEGRAM_ENABLED,
+  telegramBotToken: getEnvVarCondicional('TELEGRAM_BOT_TOKEN', TELEGRAM_ENABLED),
+  telegramWebhookSecret: getEnvVarCondicional('TELEGRAM_WEBHOOK_SECRET', TELEGRAM_ENABLED),
+  telegramWebhookPath: process.env.TELEGRAM_WEBHOOK_PATH || '/api/v1/telegram/webhook',
+  telegramSesionExpiracionHoras: getEnvInt('TELEGRAM_SESION_EXPIRACION_HORAS', 24),
 };
