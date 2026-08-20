@@ -6,6 +6,7 @@ import { env } from './config/env';
 import { crearApp } from './app';
 import { iniciarJobEvaluacionIa } from './modules/evaluaciones/evaluaciones.job';
 import { registrarComandosBot } from './modules/telegram/telegram.bootstrap';
+import { iniciarJobLimpiezaTelegram } from './modules/telegram/telegram.cleanup.job';
 
 const app = crearApp();
 
@@ -25,4 +26,5 @@ server.listen(env.port, env.host, () => {
 });
 
 iniciarJobEvaluacionIa();
+iniciarJobLimpiezaTelegram();
 void registrarComandosBot();
