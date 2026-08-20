@@ -4,6 +4,10 @@ dotenv.config();
 
 interface EnvConfig {
   port: number;
+  host: string;
+  useHttps: boolean;
+  sslKeyPath: string;
+  sslCertPath: string;
   databaseUrl: string;
   nodeEnv: string;
   corsOrigin: string;
@@ -47,6 +51,10 @@ function getEnvInt(key: string, defaultValue: number): number {
 
 export const env: EnvConfig = {
   port: getEnvInt('PORT', 3000),
+  host: process.env.HOST || '0.0.0.0',
+  useHttps: process.env.USE_HTTPS === 'true',
+  sslKeyPath: process.env.SSL_KEY_PATH || 'ssl/key.pem',
+  sslCertPath: process.env.SSL_CERT_PATH || 'ssl/cert.pem',
   databaseUrl: getEnvVar('DATABASE_URL'),
   nodeEnv: process.env.NODE_ENV || 'development',
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:4200',

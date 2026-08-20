@@ -1,5 +1,5 @@
-import { CiudadanoSessionPayload } from '../models/reporteCiudadano.model';
-import { SessionPayload } from '../models/auth.model';
+import { CiudadanoSessionPayload } from '../modules/citizen-auth/citizen-auth.types';
+import { SessionPayload } from '../modules/auth/auth.types';
 
 declare global {
   namespace Express {

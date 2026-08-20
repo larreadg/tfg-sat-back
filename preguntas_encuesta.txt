@@ -1,0 +1,79 @@
+========================================================================
+PREGUNTAS DE LA ENCUESTA - ALERTA TEMPRANA
+Calidad de agua
+========================================================================
+
+Convenciones:
+  ELECCION_UNICA    = respuesta unica (elige una opcion)
+  ELECCION_MULTIPLE = respuesta multiple (elige una o mas opciones)
+  FOTO              = adjuntar fotografia(s), sin opciones
+
+------------------------------------------------------------------------
+
+Pregunta 1 (id 1) - ELECCION_UNICA
+  ¿Qué tipo de fuente o lugar estás reportando?
+  1 - Canilla / grifo
+  2 - Pozo
+  3 - Tanque o reservorio
+  4 - Otro
+  5 - No sé
+
+------------------------------------------------------------------------
+
+Pregunta 2 (id 2) - ELECCION_UNICA
+  ¿Qué color o aspecto tiene el agua?
+  1 - Normal / sin cambios
+  2 - Amarilla o marrón (hierro o sedimento)
+  3 - Verde (algas)
+  4 - Oscura, negra o gris (manganeso o sulfuros)
+  5 - Blanquecina o lechosa (turbidez o aire)
+  6 - Otro
+
+------------------------------------------------------------------------
+
+Pregunta 3 (id 3) - ELECCION_UNICA
+  ¿El agua tiene algún olor distinto al habitual?
+  1 - No, sin olor raro
+  2 - A cloro fuerte
+  3 - A huevo podrido / azufre
+  4 - A cloaca o desagüe
+  5 - A combustible o químico
+  6 - A tierra o moho
+  7 - Otro
+
+------------------------------------------------------------------------
+
+Pregunta 4 (id 4) - ELECCION_UNICA
+  ¿Notaste que el sabor del agua sea distinto al habitual?
+  1 - Sí, sabor raro
+  2 - Sí, sabor salado
+  3 - No, igual que siempre
+  4 - No lo probé
+
+------------------------------------------------------------------------
+
+Pregunta 5 (id 5) - ELECCION_UNICA
+  ¿Alguien tuvo malestar después del contacto o consumo?
+  1 - Sí
+  2 - No
+  3 - No sé
+
+------------------------------------------------------------------------
+
+Pregunta 6 (id 6) - ELECCION_UNICA
+  ¿Desde cuándo observa el problema?
+  1 - Recién lo noté hoy
+  2 - Hace unos días
+  3 - Hace una semana o más
+  4 - Ya me había pasado antes / es recurrente
+  5 - No sé
+
+------------------------------------------------------------------------
+
+Pregunta 7 (id 7) - FOTO
+  Fotos (hasta 3)
+
+========================================================================
+Total: 7 preguntas
+Fuente: tabla Pregunta / PreguntaOpcion (DB), datos seedeados 2026-07-23.
+========================================================================

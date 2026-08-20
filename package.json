@@ -2,14 +2,17 @@
   "name": "tfg-sat-back",
   "version": "1.0.0",
   "description": "Backend Node.js + Express + TypeScript + Prisma + PostgreSQL",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/server.js",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "db:seed": "prisma db seed --"
+    "db:seed": "prisma db seed --",
+    "seed:reportes:images": "node --env-file=.env --experimental-strip-types prisma/download-seed-images.ts",
+    "seed:reportes": "npm run build && node --env-file=.env --experimental-strip-types prisma/seed-reportes.ts",
+    "seed:reportes:all": "npm run seed:reportes:images && npm run seed:reportes"
   },
   "prisma": {
     "seed": "node --env-file=.env --experimental-strip-types prisma/seed.ts"
@@ -27,7 +30,8 @@
     "node-cron": "^4.6.0",
     "openai": "^6.48.0",
     "sharp": "^0.35.3",
-    "svg-captcha": "^1.4.0"
+    "svg-captcha": "^1.4.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

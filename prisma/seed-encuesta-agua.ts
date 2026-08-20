@@ -9,9 +9,26 @@ const ENCUESTA = {
 
 const PREGUNTAS = [
   {
-    texto: '¿Qué tipo de fuente o lugar estás reportando?',
+    texto: '¿De dónde proviene el agua que estás reportando?',
     tipo: 'ELECCION_UNICA',
-    opciones: ['Canilla / grifo', 'Pozo', 'Tanque o reservorio', 'Otro', 'No sé'],
+    opciones: [
+      'Pozo propio',
+      'Junta de Saneamiento',
+      'Aguatería privada',
+      'ESSAP (red pública)',
+      'Agua embotellada o de bidón',
+      'No sé',
+    ],
+  },
+  {
+    texto: '¿Cuál es el lugar de reporte?',
+    tipo: 'ELECCION_UNICA',
+    opciones: ['Vivienda', 'Oficina laboral', 'Escuela', 'Hospital/puesto de salud', 'Empresa', 'Club'],
+  },
+  {
+    texto: '¿Desde cuándo observa el problema?',
+    tipo: 'ELECCION_UNICA',
+    opciones: ['Ahora', 'Hoy', 'Hace varios días', 'Hace semanas', 'Es recurrente', 'No sabe'],
   },
   {
     texto: '¿Qué color o aspecto tiene el agua?',
@@ -26,38 +43,14 @@ const PREGUNTAS = [
     ],
   },
   {
-    texto: '¿El agua tiene algún olor distinto al habitual?',
+    texto: 'A simple vista, ¿se observan partículas, sedimentos o material en suspensión en el agua?',
     tipo: 'ELECCION_UNICA',
-    opciones: [
-      'No, sin olor raro',
-      'A cloro fuerte',
-      'A huevo podrido / azufre',
-      'A cloaca o desagüe',
-      'A combustible o químico',
-      'A tierra o moho',
-      'Otro',
-    ],
+    opciones: ['Si', 'No'],
   },
   {
     texto: '¿Notaste que el sabor del agua sea distinto al habitual?',
     tipo: 'ELECCION_UNICA',
     opciones: ['Sí, sabor raro', 'Sí, sabor salado', 'No, igual que siempre', 'No lo probé'],
-  },
-  {
-    texto: '¿Alguien tuvo malestar después del contacto o consumo?',
-    tipo: 'ELECCION_UNICA',
-    opciones: ['Sí', 'No', 'No sé'],
-  },
-  {
-    texto: '¿Desde cuándo observa el problema?',
-    tipo: 'ELECCION_UNICA',
-    opciones: [
-      'Recién lo noté hoy',
-      'Hace unos días',
-      'Hace una semana o más',
-      'Ya me había pasado antes / es recurrente',
-      'No sé',
-    ],
   },
   {
     texto: 'Fotos (hasta 3)',
@@ -256,12 +249,24 @@ async function main() {
   console.log(`Preguntas aseguradas: ${resultado.totalPreguntas}`);
 }
 
-main()
-  .catch((error) => {
-    console.error('Error ejecutando el seed de encuesta.');
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+module.exports = {
+  ENCUESTA,
+  PREGUNTAS,
+  sembrarEncuesta,
+  sembrarPregunta,
+  sembrarOpciones,
+  sembrarEncuestaPregunta,
+  eliminarPreguntasObsoletas,
+};
+
+if (require.main === module) {
+  main()
+    .catch((error) => {
+      console.error('Error ejecutando el seed de encuesta.');
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

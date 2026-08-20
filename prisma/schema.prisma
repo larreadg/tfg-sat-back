@@ -47,7 +47,7 @@ model Usuario {
   activo                         Boolean            @default(true)
   personaId                      Int                @unique
   persona                        Persona            @relation(fields: [personaId], references: [id], onDelete: Cascade)
-  roles                          Rol[]
+  roles                          UsuarioRol[]
   usuarioCreacionId              Int?
   usuarioCreacion                Usuario?           @relation("UsuarioUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
   usuariosCreados                Usuario[]          @relation("UsuarioUsuarioCreacion")
@@ -62,6 +62,8 @@ model Usuario {
   permisosActualizados           Permiso[]          @relation("PermisoUsuarioActualizacion")
   rolesPermisosCreados           RolPermiso[]       @relation("RolPermisoUsuarioCreacion")
   rolesPermisosActualizados      RolPermiso[]       @relation("RolPermisoUsuarioActualizacion")
+  usuariosRolesCreados           UsuarioRol[]       @relation("UsuarioRolUsuarioCreacion")
+  usuariosRolesActualizados      UsuarioRol[]       @relation("UsuarioRolUsuarioActualizacion")
   dobleFactores                  DobleFactor[]
   refreshTokens                  RefreshToken[]
   preguntasCreadas               Pregunta[]         @relation("PreguntaUsuarioCreacion")
@@ -80,10 +82,9 @@ model Usuario {
 
 model Rol {
   id                     Int          @id @default(autoincrement())
-  nombre                 String
+  nombre                 String       @unique
   descripcion            String?
-  usuarioId              Int
-  usuario                Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarios               UsuarioRol[]
   rolPermisos            RolPermiso[]
   usuarioCreacionId      Int?
   usuarioCreacion        Usuario?     @relation("RolUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
@@ -91,8 +92,21 @@ model Rol {
   usuarioActualizacion   Usuario?     @relation("RolUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
   fechaCreacion          DateTime     @default(now())
   fechaActualizacion     DateTime     @updatedAt
+}
 
-  @@unique([usuarioId, nombre])
+model UsuarioRol {
+  usuarioId              Int
+  rolId                  Int
+  usuario                Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  rol                    Rol      @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  usuarioCreacionId      Int?
+  usuarioCreacion        Usuario? @relation("UsuarioRolUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId Int?
+  usuarioActualizacion   Usuario? @relation("UsuarioRolUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion          DateTime @default(now())
+  fechaActualizacion     DateTime @updatedAt
+
+  @@id([usuarioId, rolId])
 }
 
 model Permiso {

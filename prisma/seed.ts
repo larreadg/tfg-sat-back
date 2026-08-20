@@ -3,7 +3,22 @@ const { randomBytes, scryptSync } = require('node:crypto');
 
 const prisma = new PrismaClient();
 
-const MODELOS_INICIALES = ['persona', 'usuario', 'rol', 'permiso', 'rol_permiso'];
+const RECURSOS_DOMINIO = [
+  'persona',
+  'usuario',
+  'rol',
+  'permiso',
+  'rol_permiso',
+  'usuario_rol',
+  'encuesta',
+  'pregunta',
+  'pregunta_opcion',
+  'encuesta_pregunta',
+  'usuario_ciudadano',
+  'respuesta',
+  'respuesta_archivo',
+  'evaluacion_ia',
+];
 const ACCIONES_BASE = ['ver', 'crear', 'editar', 'eliminar'];
 
 const CONFIGURACION_POR_DEFECTO = {
@@ -33,7 +48,7 @@ Ejemplo:
   npm run db:seed -- --contrasena-admin="Admin123*" --correo-admin="admin@tuapp.com"
 
 Ejemplo completo:
-  npm run db:seed -- --contrasena-admin="ClaveSegura123*" --correo-admin="admin@empresa.com" --telefono-admin="595971111111" --documento-admin="1234567" --nombres-admin="Juan" --apellidos-admin="Perez" --rol-admin="Admin"
+  npm run db:seed -- --contrasena-admin="ClaveSegura123*" --correo-admin="admin@empresa.com" --telefono-admin="595971111111" --documento-admin="1234567" --nombres-admin="Juan" --apellidos-admin="Perez" --rol-admin="ADMINISTRADOR"
 `);
 }
 
@@ -82,7 +97,7 @@ function generarHashContrasena(contrasena) {
 }
 
 function construirPermisosBase() {
-  return MODELOS_INICIALES.flatMap((modelo) =>
+  return RECURSOS_DOMINIO.flatMap((modelo) =>
     ACCIONES_BASE.map((accion) => ({
       nombre: `${modelo}.${accion}`,
       descripcion: `Permite ${accion} registros de ${modelo}.`,
@@ -233,19 +248,35 @@ async function sembrarPermisos(tx, adminId) {
 async function sembrarRolAdministrador(tx, adminId, nombreRolAdmin) {
   return tx.rol.upsert({
     where: {
-      usuarioId_nombre: {
-        usuarioId: adminId,
-        nombre: nombreRolAdmin,
-      },
+      nombre: nombreRolAdmin,
     },
     update: {
-      descripcion: 'Rol administrador con acceso completo a los modelos iniciales.',
+      descripcion: 'Rol administrador con acceso completo a todos los recursos del dominio.',
       usuarioActualizacionId: adminId,
     },
     create: {
       nombre: nombreRolAdmin,
-      descripcion: 'Rol administrador con acceso completo a los modelos iniciales.',
-      usuarioId: adminId,
+      descripcion: 'Rol administrador con acceso completo a todos los recursos del dominio.',
+      usuarioCreacionId: adminId,
+      usuarioActualizacionId: adminId,
+    },
+  });
+}
+
+async function sembrarUsuarioRol(tx, usuarioId, rolId, adminId) {
+  return tx.usuarioRol.upsert({
+    where: {
+      usuarioId_rolId: {
+        usuarioId,
+        rolId,
+      },
+    },
+    update: {
+      usuarioActualizacionId: adminId,
+    },
+    create: {
+      usuarioId,
+      rolId,
       usuarioCreacionId: adminId,
       usuarioActualizacionId: adminId,
     },
@@ -279,6 +310,7 @@ async function main() {
     const admin = await crearOActualizarAdmin(tx, configuracion);
     const permisos = await sembrarPermisos(tx, admin.id);
     const rolAdministrador = await sembrarRolAdministrador(tx, admin.id, configuracion.nombreRolAdmin);
+    await sembrarUsuarioRol(tx, admin.id, rolAdministrador.id, admin.id);
 
     for (const permiso of permisos) {
       await sembrarRolPermiso(tx, rolAdministrador.id, permiso.id, admin.id);
