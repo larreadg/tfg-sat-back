@@ -53,6 +53,11 @@ const PREGUNTAS = [
     opciones: ['Sí, sabor raro', 'Sí, sabor salado', 'No, igual que siempre', 'No lo probé'],
   },
   {
+    texto: '¿Alguien reportó malestar luego del contacto o consumo?',
+    tipo: 'ELECCION_UNICA',
+    opciones: ['Sí', 'No', 'No sabe'],
+  },
+  {
     texto: 'Fotos (hasta 3)',
     tipo: 'FOTO',
     opciones: [],

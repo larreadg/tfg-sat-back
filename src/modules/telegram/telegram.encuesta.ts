@@ -4,7 +4,7 @@ import { cargarEncuestaActiva } from '../encuestas/encuestas.service';
 /**
  * Vista de la encuesta pensada para el bot: renderizamos SIEMPRE desde la
  * encuesta activa en DB (fuente unica de verdad, mapeo por `orden`). Separamos
- * las preguntas de opciones (las 6 que el bot muestra con botones) de la
+ * las preguntas de opciones (las que el bot muestra con botones) de la
  * pregunta de tipo FOTO (paso opcional aparte).
  */
 export interface OpcionBot {

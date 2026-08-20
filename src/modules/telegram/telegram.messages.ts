@@ -31,12 +31,10 @@ export function parseRespuesta(data: string): { paso: number; indiceOpcion: numb
   return { paso: Number(m[1]), indiceOpcion: Number(m[2]) };
 }
 
-export const TOTAL_PREGUNTAS = 6;
-
 // --- Textos fijos -----------------------------------------------------------
 export const BIENVENIDA =
   'Hola 👋 Soy el asistente de AGUARD.\n\n' +
-  'Te voy a hacer 6 preguntas cortas sobre el agua que queres reportar. Al final ' +
+  'Te voy a hacer unas preguntas cortas sobre el agua que queres reportar. Al final ' +
   'te pido tu ubicacion y, si queres, una foto.\n\n' +
   'Primero, compartime tu numero de telefono con el boton de abajo para poder ' +
   'registrar tu reporte y darte seguimiento.\n\n' +
@@ -44,7 +42,7 @@ export const BIENVENIDA =
 
 export const AYUDA =
   'ℹ️ Como funciona AGUARD:\n\n' +
-  '• Respondes 6 preguntas tocando los botones.\n' +
+  '• Respondes unas preguntas tocando los botones.\n' +
   '• Podes volver a la pregunta anterior con el boton "Atras".\n' +
   '• Al final compartis tu ubicacion y, opcionalmente, una foto del agua.\n' +
   '• Revisas un resumen y confirmas el envio.\n\n' +
@@ -126,8 +124,9 @@ export function quitarTeclado(): ReplyKeyboardRemove {
 export function mensajePregunta(
   pregunta: PreguntaBot,
   paso: number,
+  total: number,
 ): { texto: string; teclado: InlineKeyboardMarkup } {
-  const encabezado = `Pregunta ${paso + 1} de ${TOTAL_PREGUNTAS}\n\n${pregunta.texto}`;
+  const encabezado = `Pregunta ${paso + 1} de ${total}\n\n${pregunta.texto}`;
 
   const cortas = pregunta.opciones.every((o) => o.texto.length <= 14);
   const filas: InlineKeyboardMarkup['inline_keyboard'] = [];

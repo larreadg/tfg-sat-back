@@ -35,7 +35,7 @@ const ESTADO = {
 interface Parcial {
   answers: Record<string, number>; // preguntaId -> preguntaOpcionId
   anchorValidacionSmsId?: number;
-  repetir?: boolean; // reenvio del reporte anterior: reusamos las 6 respuestas y solo pedimos ubicacion + foto
+  repetir?: boolean; // reenvio del reporte anterior: reusamos las respuestas y solo pedimos ubicacion + foto
 }
 
 // --- Entrada ----------------------------------------------------------------
@@ -278,7 +278,7 @@ async function iniciarEncuestaConocido(
 
 /**
  * "Reportar lo mismo": el convo ya trae telefono + answers reusadas. Marcamos
- * `repetir` y saltamos las 6 preguntas; pedimos ubicacion y foto (opcional). El
+ * `repetir` y saltamos las preguntas; pedimos ubicacion y foto (opcional). El
  * resto (resumen, confirmar, persistencia con ancla nueva) reusa el flujo
  * existente.
  */
@@ -302,7 +302,7 @@ async function repetirReporte(
 
 /**
  * "Es otra cosa": ciudadano conocido que quiere un reporte distinto. Reusamos
- * su telefono y arrancamos las 6 preguntas desde cero.
+ * su telefono y arrancamos las preguntas desde cero.
  */
 async function empezarNuevoConocido(
   chatId: number,
@@ -388,7 +388,7 @@ async function procesarRespuesta(
   const parcial = leerParcial(convo);
   parcial.answers[String(pregunta.preguntaId)] = opcion.id;
 
-  if (paso < M.TOTAL_PREGUNTAS - 1) {
+  if (paso < encuesta.preguntas.length - 1) {
     const messageId = await mostrarPregunta(chatId, convo.messageId, encuesta, paso + 1);
     await guardarConvo(chatId, {
       pasoActual: paso + 1,
@@ -400,7 +400,11 @@ async function procesarRespuesta(
 
   // Ultima pregunta respondida -> pedimos ubicacion.
   if (convo.messageId) {
-    await editMessageText(chatId, convo.messageId, '✅ Respondiste las 6 preguntas.').catch(() => undefined);
+    await editMessageText(
+      chatId,
+      convo.messageId,
+      `✅ Respondiste las ${encuesta.preguntas.length} preguntas.`,
+    ).catch(() => undefined);
   }
   await guardarConvo(chatId, { estado: ESTADO.UBICACION, respuestasParciales: parcial });
   await sendMessage(chatId, M.PEDIR_UBICACION_TXT, { replyMarkup: M.tecladoUbicacion() });
@@ -584,7 +588,7 @@ async function mostrarPregunta(
   encuesta: EncuestaBot,
   paso: number,
 ): Promise<number> {
-  const { texto, teclado } = M.mensajePregunta(encuesta.preguntas[paso], paso);
+  const { texto, teclado } = M.mensajePregunta(encuesta.preguntas[paso], paso, encuesta.preguntas.length);
   if (messageId) {
     try {
       await editMessageText(chatId, messageId, texto, { replyMarkup: teclado });
