@@ -3,8 +3,9 @@ const { randomBytes, scryptSync } = require('node:crypto');
 
 const prisma = new PrismaClient();
 
-const MODELOS_INICIALES = ['persona', 'usuario', 'rol', 'permiso', 'rol_permiso'];
-const ACCIONES_BASE = ['ver', 'crear', 'editar', 'eliminar'];
+// Catalogo de permisos compartido con `seed-roles-permisos.ts`: una sola fuente
+// para que los dos seeds no vuelvan a desincronizarse (ver permisos-catalogo.js).
+const { permisosCatalogo, ORGANISMO_PERMISOS } = require('./permisos-catalogo.js');
 
 const CONFIGURACION_POR_DEFECTO = {
   correoAdmin: 'admin@sat.local',
@@ -12,7 +13,7 @@ const CONFIGURACION_POR_DEFECTO = {
   documentoAdmin: 'ADMIN-001',
   nombresAdmin: 'Administrador',
   apellidosAdmin: 'General',
-  nombreRolAdmin: 'ADMINISTRADOR',
+  nombreRolAdmin: 'ADMIN',
 };
 
 function mostrarAyuda() {
@@ -33,7 +34,7 @@ Ejemplo:
   npm run db:seed -- --contrasena-admin="Admin123*" --correo-admin="admin@tuapp.com"
 
 Ejemplo completo:
-  npm run db:seed -- --contrasena-admin="ClaveSegura123*" --correo-admin="admin@empresa.com" --telefono-admin="595971111111" --documento-admin="1234567" --nombres-admin="Juan" --apellidos-admin="Perez" --rol-admin="Admin"
+  npm run db:seed -- --contrasena-admin="ClaveSegura123*" --correo-admin="admin@empresa.com" --telefono-admin="595971111111" --documento-admin="1234567" --nombres-admin="Juan" --apellidos-admin="Perez" --rol-admin="ADMINISTRADOR"
 `);
 }
 
@@ -82,12 +83,7 @@ function generarHashContrasena(contrasena) {
 }
 
 function construirPermisosBase() {
-  return MODELOS_INICIALES.flatMap((modelo) =>
-    ACCIONES_BASE.map((accion) => ({
-      nombre: `${modelo}.${accion}`,
-      descripcion: `Permite ${accion} registros de ${modelo}.`,
-    })),
-  );
+  return permisosCatalogo();
 }
 
 async function crearOActualizarAdmin(tx, configuracion) {
@@ -233,19 +229,51 @@ async function sembrarPermisos(tx, adminId) {
 async function sembrarRolAdministrador(tx, adminId, nombreRolAdmin) {
   return tx.rol.upsert({
     where: {
-      usuarioId_nombre: {
-        usuarioId: adminId,
-        nombre: nombreRolAdmin,
-      },
+      nombre: nombreRolAdmin,
     },
     update: {
-      descripcion: 'Rol administrador con acceso completo a los modelos iniciales.',
+      descripcion: 'Rol administrador con acceso completo a todos los recursos del dominio.',
       usuarioActualizacionId: adminId,
     },
     create: {
       nombre: nombreRolAdmin,
-      descripcion: 'Rol administrador con acceso completo a los modelos iniciales.',
-      usuarioId: adminId,
+      descripcion: 'Rol administrador con acceso completo a todos los recursos del dominio.',
+      usuarioCreacionId: adminId,
+      usuarioActualizacionId: adminId,
+    },
+  });
+}
+
+async function sembrarRolOrganismo(tx, adminId) {
+  return tx.rol.upsert({
+    where: { nombre: 'ORGANISMO' },
+    update: {
+      descripcion: 'Organismo: acceso de solo lectura al panel (reportes, evaluaciones, alertas, puntos criticos, encuestas).',
+      usuarioActualizacionId: adminId,
+    },
+    create: {
+      nombre: 'ORGANISMO',
+      descripcion: 'Organismo: acceso de solo lectura al panel (reportes, evaluaciones, alertas, puntos criticos, encuestas).',
+      usuarioCreacionId: adminId,
+      usuarioActualizacionId: adminId,
+    },
+  });
+}
+
+async function sembrarUsuarioRol(tx, usuarioId, rolId, adminId) {
+  return tx.usuarioRol.upsert({
+    where: {
+      usuarioId_rolId: {
+        usuarioId,
+        rolId,
+      },
+    },
+    update: {
+      usuarioActualizacionId: adminId,
+    },
+    create: {
+      usuarioId,
+      rolId,
       usuarioCreacionId: adminId,
       usuarioActualizacionId: adminId,
     },
@@ -279,15 +307,26 @@ async function main() {
     const admin = await crearOActualizarAdmin(tx, configuracion);
     const permisos = await sembrarPermisos(tx, admin.id);
     const rolAdministrador = await sembrarRolAdministrador(tx, admin.id, configuracion.nombreRolAdmin);
+    await sembrarUsuarioRol(tx, admin.id, rolAdministrador.id, admin.id);
 
     for (const permiso of permisos) {
       await sembrarRolPermiso(tx, rolAdministrador.id, permiso.id, admin.id);
+    }
+
+    // Rol ORGANISMO: solo lectura del panel.
+    const rolOrganismo = await sembrarRolOrganismo(tx, admin.id);
+    // Por NOMBRE COMPLETO, no por sufijo `.ver`: ORGANISMO tambien tiene
+    // `alerta.seguimiento`, que no es un permiso de lectura.
+    const permisosVer = permisos.filter((permiso) => ORGANISMO_PERMISOS.includes(permiso.nombre));
+    for (const permiso of permisosVer) {
+      await sembrarRolPermiso(tx, rolOrganismo.id, permiso.id, admin.id);
     }
 
     return {
       admin,
       rolAdministrador,
       permisosCreados: permisos.length,
+      organismoPermisos: permisosVer.length,
     };
   });
 

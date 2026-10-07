@@ -2,14 +2,21 @@
   "name": "tfg-sat-back",
   "version": "1.0.0",
   "description": "Backend Node.js + Express + TypeScript + Prisma + PostgreSQL",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/server.js",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "db:seed": "prisma db seed --"
+    "db:seed": "prisma db seed --",
+    "seed:encuesta": "node --env-file=.env --experimental-strip-types prisma/seed-encuesta-agua.ts",
+    "seed:config": "node --env-file=.env --experimental-strip-types prisma/seed-config-criticidad.ts",
+    "seed:roles": "node --env-file=.env --experimental-strip-types prisma/seed-roles-permisos.ts",
+    "migrar:puntajes": "node --env-file=.env --experimental-strip-types prisma/migrar-puntajes-criticidad.ts",
+    "geo:backfill": "ts-node --transpile-only src/scripts/backfill-geocoding.ts",
+    "criticidad:recalcular": "ts-node --transpile-only src/scripts/recalcular-criticidad.ts",
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\""
   },
   "prisma": {
     "seed": "node --env-file=.env --experimental-strip-types prisma/seed.ts"
@@ -17,15 +24,26 @@
   "dependencies": {
     "@prisma/client": "^5.20.0",
     "axios": "^1.18.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.6.1",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
-    "svg-captcha": "^1.4.0"
+    "multer": "^2.2.0",
+    "node-cron": "^4.6.0",
+    "nodemailer": "^7.0.13",
+    "openai": "^6.48.0",
+    "sharp": "^0.35.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.2.0",
     "@types/node": "^20.16.0",
+    "@types/nodemailer": "^8.0.2",
     "prisma": "^5.20.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.6.3"
