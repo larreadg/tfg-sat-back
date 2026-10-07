@@ -14,8 +14,8 @@ export const preAuthSchema = z.object({
 
 export const verificarDobleFactorSchema = z.object({
   preAuthToken: z.string().min(1),
-  // Codigo SMS de 4 digitos exactos (ver doble-factor.service / citizen-auth.service).
-  codigo: z.string().trim().regex(/^\d{4}$/, 'El codigo debe tener 4 digitos.'),
+  // Codigo SMS de 6 digitos exactos (ver LONGITUD_CODIGO en doble-factor.service).
+  codigo: z.string().trim().regex(/^\d{6}$/, 'El codigo debe tener 6 digitos.'),
 });
 
 export const refreshSchema = z.object({
