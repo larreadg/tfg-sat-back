@@ -14,5 +14,5 @@ export function errorHandler(
   }
 
   console.error(err);
-  res.status(500).json(ApiResponse.error(500, 'Internal server error'));
+  res.status(500).json(ApiResponse.error(500, 'Ocurrio un error inesperado. Volve a intentar en unos minutos.'));
 }

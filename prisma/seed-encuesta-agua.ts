@@ -124,8 +124,10 @@ async function sembrarEncuesta(tx, usuarioId) {
       },
     });
   } else {
+    const maxima = await tx.encuesta.aggregate({ _max: { version: true } });
     encuesta = await tx.encuesta.create({
       data: {
+        version: (maxima._max.version ?? 0) + 1,
         nombre: ENCUESTA.nombre,
         descripcion: ENCUESTA.descripcion,
         usuarioCreacionId: usuarioId,

@@ -10,9 +10,13 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "prisma db seed --",
-    "seed:reportes:images": "node --env-file=.env --experimental-strip-types prisma/download-seed-images.ts",
-    "seed:reportes": "npm run build && node --env-file=.env --experimental-strip-types prisma/seed-reportes.ts",
-    "seed:reportes:all": "npm run seed:reportes:images && npm run seed:reportes"
+    "seed:encuesta": "node --env-file=.env --experimental-strip-types prisma/seed-encuesta-agua.ts",
+    "seed:config": "node --env-file=.env --experimental-strip-types prisma/seed-config-criticidad.ts",
+    "seed:roles": "node --env-file=.env --experimental-strip-types prisma/seed-roles-permisos.ts",
+    "migrar:puntajes": "node --env-file=.env --experimental-strip-types prisma/migrar-puntajes-criticidad.ts",
+    "geo:backfill": "ts-node --transpile-only src/scripts/backfill-geocoding.ts",
+    "criticidad:recalcular": "ts-node --transpile-only src/scripts/recalcular-criticidad.ts",
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\""
   },
   "prisma": {
     "seed": "node --env-file=.env --experimental-strip-types prisma/seed.ts"
@@ -28,9 +32,9 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "node-cron": "^4.6.0",
+    "nodemailer": "^7.0.13",
     "openai": "^6.48.0",
     "sharp": "^0.35.3",
-    "svg-captcha": "^1.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -39,6 +43,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",
     "@types/node": "^20.16.0",
+    "@types/nodemailer": "^8.0.2",
     "prisma": "^5.20.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.6.3"

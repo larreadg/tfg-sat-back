@@ -14,7 +14,6 @@ const router = Router();
 
 router.use(authLimiter);
 
-router.get('/captcha', authController.getCaptcha);
 router.post('/login', validate({ body: loginSchema }), authController.login);
 router.post('/2fa-codigos', validate({ body: preAuthSchema }), authController.reenviarDobleFactor);
 router.post(

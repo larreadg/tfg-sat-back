@@ -49,6 +49,7 @@ export interface TelegramMessage {
   contact?: TelegramContact;
   location?: TelegramLocation;
   photo?: TelegramPhotoSize[];
+  media_group_id?: string; // album: varias fotos comparten este id, llegan en updates distintos
 }
 
 export interface TelegramCallbackQuery {

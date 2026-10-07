@@ -5,9 +5,9 @@ import { ListUsersQuery } from './users.validation';
 
 export async function getUsers(req: Request, res: ExpressResponse, next: NextFunction): Promise<void> {
   try {
-    const { page, limit, sort, activo } = req.query as unknown as ListUsersQuery;
+    const { page, limit, sort, activo, q } = req.query as unknown as ListUsersQuery;
 
-    const result = await userService.getAllUsers({ page, limit, sort, activo });
+    const result = await userService.getAllUsers({ page, limit, sort, activo, q });
 
     res
       .status(200)

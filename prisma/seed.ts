@@ -3,23 +3,9 @@ const { randomBytes, scryptSync } = require('node:crypto');
 
 const prisma = new PrismaClient();
 
-const RECURSOS_DOMINIO = [
-  'persona',
-  'usuario',
-  'rol',
-  'permiso',
-  'rol_permiso',
-  'usuario_rol',
-  'encuesta',
-  'pregunta',
-  'pregunta_opcion',
-  'encuesta_pregunta',
-  'usuario_ciudadano',
-  'respuesta',
-  'respuesta_archivo',
-  'evaluacion_ia',
-];
-const ACCIONES_BASE = ['ver', 'crear', 'editar', 'eliminar'];
+// Catalogo de permisos compartido con `seed-roles-permisos.ts`: una sola fuente
+// para que los dos seeds no vuelvan a desincronizarse (ver permisos-catalogo.js).
+const { permisosCatalogo, ORGANISMO_PERMISOS } = require('./permisos-catalogo.js');
 
 const CONFIGURACION_POR_DEFECTO = {
   correoAdmin: 'admin@sat.local',
@@ -27,7 +13,7 @@ const CONFIGURACION_POR_DEFECTO = {
   documentoAdmin: 'ADMIN-001',
   nombresAdmin: 'Administrador',
   apellidosAdmin: 'General',
-  nombreRolAdmin: 'ADMINISTRADOR',
+  nombreRolAdmin: 'ADMIN',
 };
 
 function mostrarAyuda() {
@@ -97,12 +83,7 @@ function generarHashContrasena(contrasena) {
 }
 
 function construirPermisosBase() {
-  return RECURSOS_DOMINIO.flatMap((modelo) =>
-    ACCIONES_BASE.map((accion) => ({
-      nombre: `${modelo}.${accion}`,
-      descripcion: `Permite ${accion} registros de ${modelo}.`,
-    })),
-  );
+  return permisosCatalogo();
 }
 
 async function crearOActualizarAdmin(tx, configuracion) {
@@ -263,6 +244,22 @@ async function sembrarRolAdministrador(tx, adminId, nombreRolAdmin) {
   });
 }
 
+async function sembrarRolOrganismo(tx, adminId) {
+  return tx.rol.upsert({
+    where: { nombre: 'ORGANISMO' },
+    update: {
+      descripcion: 'Organismo: acceso de solo lectura al panel (reportes, evaluaciones, alertas, puntos criticos, encuestas).',
+      usuarioActualizacionId: adminId,
+    },
+    create: {
+      nombre: 'ORGANISMO',
+      descripcion: 'Organismo: acceso de solo lectura al panel (reportes, evaluaciones, alertas, puntos criticos, encuestas).',
+      usuarioCreacionId: adminId,
+      usuarioActualizacionId: adminId,
+    },
+  });
+}
+
 async function sembrarUsuarioRol(tx, usuarioId, rolId, adminId) {
   return tx.usuarioRol.upsert({
     where: {
@@ -316,10 +313,20 @@ async function main() {
       await sembrarRolPermiso(tx, rolAdministrador.id, permiso.id, admin.id);
     }
 
+    // Rol ORGANISMO: solo lectura del panel.
+    const rolOrganismo = await sembrarRolOrganismo(tx, admin.id);
+    // Por NOMBRE COMPLETO, no por sufijo `.ver`: ORGANISMO tambien tiene
+    // `alerta.seguimiento`, que no es un permiso de lectura.
+    const permisosVer = permisos.filter((permiso) => ORGANISMO_PERMISOS.includes(permiso.nombre));
+    for (const permiso of permisosVer) {
+      await sembrarRolPermiso(tx, rolOrganismo.id, permiso.id, admin.id);
+    }
+
     return {
       admin,
       rolAdministrador,
       permisosCreados: permisos.length,
+      organismoPermisos: permisosVer.length,
     };
   });
 

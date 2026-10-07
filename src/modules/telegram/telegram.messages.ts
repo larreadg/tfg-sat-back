@@ -17,6 +17,7 @@ export const CB = {
   continuar: 'cont',
   reiniciar: 'restart',
   omitirFoto: 'skip',
+  listoFotos: 'done', // terminar de cargar fotos (1..N) y pasar al resumen
   confirmar: 'confirm',
   cancelar: 'cancel',
   repetir: 'again', // reenviar el ultimo reporte cambiando solo la ubicacion
@@ -64,16 +65,38 @@ export const PEDIR_UBICACION_TXT =
   '📍 Ahora compartime la ubicacion del lugar del reporte con el boton de abajo.';
 
 export const PEDIR_UBICACION_REPETIR_TXT =
-  '📍 Perfecto. Compartime la ubicacion de ahora con el boton de abajo. Despues te pido una foto (opcional) y reenviamos tu reporte.';
+  '📍 Perfecto. Compartime la ubicacion de ahora con el boton de abajo. Despues te pido la foto del agua y reenviamos tu reporte.';
 
 export const RECORDAR_UBICACION =
   'Necesito tu ubicacion. Toca el boton "📍 Compartir mi ubicacion".';
 
-export const PEDIR_FOTO_TXT =
-  '📷 Si podes, enviame una foto del agua. Si no, toca "Omitir".';
+/**
+ * Paso de fotos. La cantidad la define la version activa de la encuesta: la
+ * foto NO es opcional, por eso el texto pide y no sugiere.
+ */
+export function pedirFotoTxt(min: number, max: number): string {
+  const pedido =
+    min === 1
+      ? `enviame al menos una foto del agua (hasta ${max})`
+      : `enviame al menos ${min} fotos del agua (hasta ${max})`;
+  return `📷 Necesito ver el agua para analizar el reporte: ${pedido}. Cuando termines toca "✅ Listo".`;
+}
 
-export const RECORDAR_FOTO =
-  'Enviame una foto como imagen, o toca "Omitir" para seguir sin foto.';
+export function recordarFotoTxt(min: number): string {
+  return min === 1
+    ? 'Enviame la foto como imagen: sin al menos una foto no puedo tomar el reporte.'
+    : `Enviame las fotos como imagen: hacen falta al menos ${min}.`;
+}
+
+/** Texto del paso de foto cuando ya hay al menos una cargada. */
+export function fotosCargadasTxt(cantidad: number, min = 1, max = 3): string {
+  if (cantidad < min) {
+    const faltan = min - cantidad;
+    return `📷 ${cantidad} foto(s) cargada(s). Falta(n) ${faltan} para poder continuar.`;
+  }
+  const puedeSumar = cantidad < max ? 'Podes enviar otra o ' : '';
+  return `📷 ${cantidad} foto(s) cargada(s). ${puedeSumar}toca "✅ Listo" para continuar.`;
+}
 
 export const USAR_BOTONES =
   'Por favor usá los botones 👇 para responder.';
@@ -87,7 +110,19 @@ export const EXPIRADO =
 export const ERROR_PERSISTENCIA =
   '⚠️ Hubo un problema al guardar tu reporte. Tus respuestas siguen cargadas: toca "✅ Confirmar" de nuevo para reintentar.';
 
-export function reporteCreado(codigo: number): string {
+/**
+ * Limite anti-abuso alcanzado (reportes/24h). Reintentar no sirve, asi que el
+ * texto lo deja claro. `detalle` es el mensaje del TooManyRequestsError.
+ */
+export function limiteReportes(detalle: string): string {
+  return (
+    `🚫 ${detalle}\n\n` +
+    'No hace falta reintentar ahora: cuando pase el periodo vas a poder enviar un ' +
+    'reporte nuevo con /start.'
+  );
+}
+
+export function reporteCreado(codigo: string): string {
   return (
     '✅ ¡Gracias! Tu reporte fue registrado con exito.\n\n' +
     `Codigo de seguimiento: ${codigo}\n\n` +
@@ -151,10 +186,25 @@ export function mensajePregunta(
   return { texto: encabezado, teclado: { inline_keyboard: filas } };
 }
 
-export function tecladoFoto(): InlineKeyboardMarkup {
+/**
+ * Teclado del paso de foto sin fotos aun. Solo ofrece "Omitir" si la version
+ * activa no exige fotos (`fotosMin === 0`, hoy imposible por validacion, pero
+ * el teclado no tiene por que asumirlo).
+ */
+export function tecladoFoto(min: number): InlineKeyboardMarkup {
+  const filas = [];
+  if (min <= 0) {
+    filas.push([{ text: 'Omitir foto ⏭️', callback_data: CB.omitirFoto }]);
+  }
+  filas.push([{ text: '◀️ Atras', callback_data: CB.atras }]);
+  return { inline_keyboard: filas };
+}
+
+/** Teclado del paso de foto con al menos una cargada: se confirma con "Listo". */
+export function tecladoFotoListo(): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
-      [{ text: 'Omitir foto ⏭️', callback_data: CB.omitirFoto }],
+      [{ text: '✅ Listo', callback_data: CB.listoFotos }],
       [{ text: '◀️ Atras', callback_data: CB.atras }],
     ],
   };
@@ -221,26 +271,38 @@ function formatearFecha(fecha: Date): string {
 /**
  * Resumen final de lo respondido. `answers` mapea preguntaId -> preguntaOpcionId.
  */
+/**
+ * Emoji "keycap" para numerar preguntas (1..10). Mas alla de 10 cae a "N.".
+ * Ayuda a separar visualmente cada pregunta en el resumen (texto plano).
+ */
+const NUMEROS_EMOJI = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+function numeroPregunta(i: number): string {
+  return NUMEROS_EMOJI[i] ?? `${i + 1}.`;
+}
+
 export function mensajeResumen(
   encuesta: EncuestaBot,
   answers: Record<string, number>,
   ubicacion: { lat: number; lng: number },
-  tieneFoto: boolean,
+  cantidadFotos: number,
 ): string {
-  const lineas: string[] = ['📋 Revisa tu reporte antes de enviarlo:', ''];
+  const lineas: string[] = ['📋 Revisá tu reporte antes de enviarlo:', ''];
 
+  // Un bloque por pregunta, separado por una linea en blanco para que no se
+  // mezclen (el bot manda texto plano, sin formato).
   encuesta.preguntas.forEach((pregunta, i) => {
     const opcionId = answers[String(pregunta.preguntaId)];
     const opcion = pregunta.opciones.find((o) => o.id === opcionId);
-    lineas.push(`${i + 1}. ${pregunta.texto}`);
-    lineas.push(`   → ${opcion ? opcion.texto : '(sin responder)'}`);
+    lineas.push(`${numeroPregunta(i)} ${pregunta.texto}`);
+    lineas.push(`      ↳ ${opcion ? opcion.texto : '(sin responder)'}`);
+    lineas.push('');
   });
 
+  lineas.push('➖➖➖➖➖➖➖➖➖➖');
+  lineas.push(`📍 Ubicación: ${ubicacion.lat.toFixed(5)}, ${ubicacion.lng.toFixed(5)}`);
+  lineas.push(`📷 Fotos: ${cantidadFotos > 0 ? `${cantidadFotos} adjunta(s)` : 'sin foto'}`);
   lineas.push('');
-  lineas.push(`📍 Ubicacion: ${ubicacion.lat.toFixed(5)}, ${ubicacion.lng.toFixed(5)}`);
-  lineas.push(`📷 Foto: ${tieneFoto ? 'adjunta' : 'sin foto'}`);
-  lineas.push('');
-  lineas.push('Si esta todo bien, toca "✅ Confirmar".');
+  lineas.push('Si está todo bien, tocá "✅ Confirmar".');
 
   return lineas.join('\n');
 }

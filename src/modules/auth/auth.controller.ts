@@ -1,23 +1,13 @@
 import { Request, Response as ExpressResponse, NextFunction } from 'express';
-import * as captchaService from '../../shared/services/captcha.service';
 import * as authService from './auth.service';
 import { Response as ApiResponse } from '../../shared/utils/response';
 import { LoginBody, VerificarDobleFactorBody } from './auth.validation';
 
-export async function getCaptcha(req: Request, res: ExpressResponse, next: NextFunction): Promise<void> {
-  try {
-    const svg = await captchaService.generateCaptcha(req.ip ?? req.socket.remoteAddress ?? '');
-    res.status(200).type('svg').send(svg);
-  } catch (err) {
-    next(err);
-  }
-}
-
 export async function login(req: Request, res: ExpressResponse, next: NextFunction): Promise<void> {
   try {
-    const { correoElectronico, contrasena, captcha } = req.body as LoginBody;
+    const { correoElectronico, contrasena, turnstileToken } = req.body as LoginBody;
     const ip = req.ip ?? req.socket.remoteAddress ?? '';
-    const preAuthToken = await authService.login(ip, correoElectronico, contrasena, captcha);
+    const preAuthToken = await authService.login(ip, correoElectronico, contrasena, turnstileToken);
     res.status(200).json(ApiResponse.success(200, { preAuthToken }, 'Codigo de verificacion enviado correctamente.'));
   } catch (err) {
     next(err);

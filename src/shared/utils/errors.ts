@@ -45,3 +45,15 @@ export class TooManyRequestsError extends AppError {
     super(message, 429);
   }
 }
+
+/**
+ * 502: la request a nuestra API estaba bien, pero un servicio EXTERNO del que
+ * dependemos fallo o rechazo la operacion (p.ej. el servidor SMTP configurado
+ * rechaza las credenciales). No es un 400 —el cliente no se equivoco— ni un 500
+ * —no se rompio nuestro codigo—.
+ */
+export class BadGatewayError extends AppError {
+  constructor(message = 'Upstream service error') {
+    super(message, 502);
+  }
+}

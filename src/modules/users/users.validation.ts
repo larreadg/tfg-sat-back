@@ -35,6 +35,8 @@ export const listUsersQuerySchema = z.object({
     .enum(['true', 'false'])
     .transform((valor) => valor === 'true')
     .optional(),
+  /** Busqueda libre sobre correo, nombres, apellidos y documento. */
+  q: z.string().trim().min(1).max(100).optional(),
 });
 
 export type CreateUserBody = z.infer<typeof createUserSchema>;

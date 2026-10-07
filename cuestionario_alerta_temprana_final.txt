@@ -39,3 +39,8 @@ Sí, sabor raro
 Sí, sabor salado
 No, igual que siempre
 No lo probé
+
+¿Alguien reportó malestar luego del contacto o consumo?
+Sí
+No
+No sabe 

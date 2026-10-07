@@ -1,7 +1,7 @@
 import { TelegramConversacion } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { env } from '../../config/env';
-import { ConflictError } from '../../shared/utils/errors';
+import { ConflictError, TooManyRequestsError } from '../../shared/utils/errors';
 import {
   TelegramCallbackQuery,
   TelegramMessage,
@@ -15,6 +15,7 @@ import {
 import * as M from './telegram.messages';
 import { cargarEncuestaBot, EncuestaBot } from './telegram.encuesta';
 import * as persistencia from './telegram.persistencia';
+import { obtenerConfigFotosActiva } from '../encuestas/encuestas.service';
 
 /**
  * Maquina de estados de la encuesta de Telegram. Todo el estado vive en la tabla
@@ -36,6 +37,7 @@ interface Parcial {
   answers: Record<string, number>; // preguntaId -> preguntaOpcionId
   anchorValidacionSmsId?: number;
   repetir?: boolean; // reenvio del reporte anterior: reusamos las respuestas y solo pedimos ubicacion + foto
+  fotoFileIds?: string[]; // fotos cargadas en el paso FOTO (un album llega como varios updates)
 }
 
 // --- Entrada ----------------------------------------------------------------
@@ -96,12 +98,17 @@ async function manejarMensaje(msg: TelegramMessage): Promise<void> {
     case ESTADO.FOTO:
       if (msg.photo && msg.photo.length > 0) {
         const fileId = msg.photo[msg.photo.length - 1].file_id; // mayor resolucion
-        await procesarFoto(chatId, fileId, convo);
+        await agregarFoto(chatId, fileId, convo);
       } else {
-        await sendMessage(chatId, M.RECORDAR_FOTO);
+        await sendMessage(chatId, M.recordarFotoTxt((await obtenerConfigFotosActiva()).fotosMin));
       }
       break;
     default:
+      // Foto tardia (p.ej. resto de un album) que aterriza cuando el paso de
+      // foto ya se cerro (estado RESUMEN/COMPLETADO): la ignoramos en silencio.
+      if (msg.photo && msg.photo.length > 0) {
+        break;
+      }
       // PREGUNTA / RESUMEN: se esperan botones, no texto libre.
       await sendMessage(chatId, M.USAR_BOTONES);
   }
@@ -160,8 +167,16 @@ async function manejarCallback(cb: TelegramCallbackQuery): Promise<void> {
     await manejarAtras(chatId, convo);
     return;
   }
-  if (data === M.CB.omitirFoto && convo.estado === ESTADO.FOTO) {
-    await procesarFoto(chatId, null, convo);
+  if ((data === M.CB.omitirFoto || data === M.CB.listoFotos) && convo.estado === ESTADO.FOTO) {
+    // Las fotos no son opcionales: el paso solo cierra con el minimo que exige
+    // la version activa de la encuesta (si no, el envio fallaria al final).
+    const { fotosMin } = await obtenerConfigFotosActiva();
+    const cargadas = (leerParcial(convo).fotoFileIds ?? []).length;
+    if (cargadas < fotosMin) {
+      await sendMessage(chatId, M.recordarFotoTxt(fotosMin));
+      return;
+    }
+    await finalizarFotos(chatId, convo);
     return;
   }
   if (data === M.CB.confirmar && convo.estado === ESTADO.RESUMEN) {
@@ -208,7 +223,6 @@ async function comandoStart(chatId: number): Promise<void> {
         respuestasParciales: { answers: answersValidas },
         ubicacionLat: null,
         ubicacionLng: null,
-        fotoFileId: null,
         messageId: null,
       });
       await sendMessage(chatId, M.mensajeReporteAnterior(anterior.fecha, anterior.lineasResumen), {
@@ -246,7 +260,6 @@ async function iniciarEncuesta(chatId: number): Promise<void> {
     respuestasParciales: { answers: {} },
     ubicacionLat: null,
     ubicacionLng: null,
-    fotoFileId: null,
     messageId: null,
   });
   await sendMessage(chatId, M.BIENVENIDA, { replyMarkup: M.tecladoContacto() });
@@ -269,7 +282,6 @@ async function iniciarEncuestaConocido(
     respuestasParciales: { answers: {} },
     ubicacionLat: null,
     ubicacionLng: null,
-    fotoFileId: null,
     messageId: null,
   });
   const messageId = await mostrarPregunta(chatId, null, encuesta, 0);
@@ -414,33 +426,105 @@ async function procesarUbicacion(
   chatId: number,
   lat: number,
   lng: number,
-  _convo: TelegramConversacion,
-): Promise<void> {
-  await sendMessage(chatId, '📍 Ubicacion recibida.', { replyMarkup: M.quitarTeclado() });
-
-  const { message_id } = await sendMessage(chatId, M.PEDIR_FOTO_TXT, { replyMarkup: M.tecladoFoto() });
-  await guardarConvo(chatId, {
-    estado: ESTADO.FOTO,
-    ubicacionLat: lat,
-    ubicacionLng: lng,
-    messageId: message_id,
-  });
-}
-
-async function procesarFoto(
-  chatId: number,
-  fileId: string | null,
   convo: TelegramConversacion,
 ): Promise<void> {
+  await sendMessage(chatId, '📍 Ubicacion recibida.', { replyMarkup: M.quitarTeclado() });
+  await guardarConvo(chatId, { estado: ESTADO.FOTO, ubicacionLat: lat, ubicacionLng: lng });
+  await enviarPasoFoto(chatId, convo);
+}
+
+/**
+ * Muestra el paso de foto con el teclado acorde a lo ya cargado: "Omitir" cuando
+ * no hay fotos, "Listo" cuando hay al menos una. Guarda el messageId del prompt
+ * para poder editarlo a medida que llegan mas fotos. Reusado al entrar desde
+ * ubicacion, al reanudar y al volver "atras" desde el resumen.
+ */
+async function enviarPasoFoto(chatId: number, convo: TelegramConversacion): Promise<void> {
+  const fotos = leerParcial(convo).fotoFileIds ?? [];
+  const { fotosMin, fotosMax } = await obtenerConfigFotosActiva();
+  // "Listo" recien aparece cuando se alcanzo el minimo exigido por la version.
+  const { message_id } =
+    fotos.length > 0
+      ? await sendMessage(chatId, M.fotosCargadasTxt(fotos.length, fotosMin, fotosMax), {
+          replyMarkup: fotos.length >= fotosMin ? M.tecladoFotoListo() : M.tecladoFoto(fotosMin),
+        })
+      : await sendMessage(chatId, M.pedirFotoTxt(fotosMin, fotosMax), { replyMarkup: M.tecladoFoto(fotosMin) });
+  await guardarConvo(chatId, { messageId: message_id });
+}
+
+/**
+ * Agrega una foto al paso FOTO. Las fotos de un album llegan como updates
+ * separados y concurrentes, por lo que el append se hace ATOMICO en Postgres
+ * (jsonb `||` bajo el lock de fila) con el tope en el propio WHERE: asi ningun
+ * update pisa al otro y no se pierden fotos. El tope es el `fotosMax` de la
+ * version activa. Devuelve la nueva cantidad via RETURNING para refrescar el
+ * contador del mensaje.
+ */
+async function agregarFoto(
+  chatId: number,
+  fileId: string,
+  convo: TelegramConversacion,
+): Promise<void> {
+  const { fotosMin, fotosMax } = await obtenerConfigFotosActiva();
+  const rows = await prisma.$queryRaw<{ n: number }[]>`
+    UPDATE "TelegramConversacion"
+    SET "respuestasParciales" = jsonb_set(
+          COALESCE("respuestasParciales", '{}'::jsonb),
+          '{fotoFileIds}',
+          COALESCE("respuestasParciales"->'fotoFileIds', '[]'::jsonb) || to_jsonb(${fileId}::text)
+        ),
+        "expiracion" = ${nuevaExpiracion()}
+    WHERE "chatId" = ${BigInt(chatId)}
+      AND "estado" = ${ESTADO.FOTO}
+      AND jsonb_array_length(COALESCE("respuestasParciales"->'fotoFileIds', '[]'::jsonb)) < ${fotosMax}
+    RETURNING jsonb_array_length("respuestasParciales"->'fotoFileIds')::int AS n
+  `;
+
+  if (rows.length === 0) {
+    // El WHERE no matcheo: o ya se llego a `fotosMax`, o el paso ya se cerro
+    // (p.ej. la foto llego justo despues de "Listo"). Avisamos sin avanzar ni
+    // duplicar el resumen.
+    await sendMessage(
+      chatId,
+      `No pude sumar esa foto (llegaste al tope de ${fotosMax} o el paso ya se cerro).`,
+    );
+    return;
+  }
+
+  const n = Number(rows[0].n);
+  const texto = M.fotosCargadasTxt(n, fotosMin, fotosMax);
+  const teclado = n >= fotosMin ? M.tecladoFotoListo() : M.tecladoFoto(fotosMin);
+  if (convo.messageId) {
+    await editMessageText(chatId, convo.messageId, texto, { replyMarkup: teclado }).catch(() => undefined);
+  } else {
+    const { message_id } = await sendMessage(chatId, texto, { replyMarkup: teclado });
+    await guardarConvo(chatId, { messageId: message_id });
+  }
+}
+
+/**
+ * Cierra el paso de foto (boton "Listo" con 1..N fotos, o "Omitir" sin ninguna)
+ * y muestra el resumen. La transicion FOTO -> RESUMEN se reclama de forma
+ * atomica para que un doble toque no muestre el resumen dos veces.
+ */
+async function finalizarFotos(chatId: number, convo: TelegramConversacion): Promise<void> {
+  const claim = await prisma.telegramConversacion.updateMany({
+    where: { chatId: BigInt(chatId), estado: ESTADO.FOTO },
+    data: { estado: ESTADO.RESUMEN, expiracion: nuevaExpiracion() },
+  });
+  if (claim.count === 0) {
+    return; // el paso de foto ya se habia cerrado
+  }
+
+  const fotos = leerParcial(convo).fotoFileIds ?? [];
   if (convo.messageId) {
     await editMessageText(
       chatId,
       convo.messageId,
-      fileId ? '📷 Foto recibida.' : '📷 Sin foto.',
+      fotos.length > 0 ? `📷 ${fotos.length} foto(s) recibida(s).` : '📷 Sin foto.',
     ).catch(() => undefined);
   }
-  await guardarConvo(chatId, { estado: ESTADO.RESUMEN, fotoFileId: fileId });
-  await mostrarResumen(chatId, { ...convo, estado: ESTADO.RESUMEN, fotoFileId: fileId });
+  await mostrarResumen(chatId, { ...convo, estado: ESTADO.RESUMEN });
 }
 
 async function mostrarResumen(chatId: number, convo: TelegramConversacion): Promise<void> {
@@ -453,7 +537,7 @@ async function mostrarResumen(chatId: number, convo: TelegramConversacion): Prom
     encuesta,
     parcial.answers,
     { lat: convo.ubicacionLat, lng: convo.ubicacionLng },
-    Boolean(convo.fotoFileId),
+    (parcial.fotoFileIds ?? []).length,
   );
   const { message_id } = await sendMessage(chatId, texto, { replyMarkup: M.tecladoResumen() });
   await guardarConvo(chatId, { messageId: message_id });
@@ -482,12 +566,12 @@ async function manejarAtras(chatId: number, convo: TelegramConversacion): Promis
       break;
     }
     case ESTADO.RESUMEN: {
-      // Volver al paso de foto.
+      // Volver al paso de foto, conservando las fotos ya cargadas.
       if (convo.messageId) {
         await editMessageText(chatId, convo.messageId, '◀️ Volviendo al paso de la foto.').catch(() => undefined);
       }
-      const { message_id } = await sendMessage(chatId, M.PEDIR_FOTO_TXT, { replyMarkup: M.tecladoFoto() });
-      await guardarConvo(chatId, { estado: ESTADO.FOTO, messageId: message_id });
+      await guardarConvo(chatId, { estado: ESTADO.FOTO });
+      await enviarPasoFoto(chatId, convo);
       break;
     }
     default:
@@ -513,11 +597,9 @@ async function reanudar(chatId: number, convo: TelegramConversacion): Promise<vo
     case ESTADO.UBICACION:
       await sendMessage(chatId, M.PEDIR_UBICACION_TXT, { replyMarkup: M.tecladoUbicacion() });
       break;
-    case ESTADO.FOTO: {
-      const { message_id } = await sendMessage(chatId, M.PEDIR_FOTO_TXT, { replyMarkup: M.tecladoFoto() });
-      await guardarConvo(chatId, { messageId: message_id });
+    case ESTADO.FOTO:
+      await enviarPasoFoto(chatId, convo);
       break;
-    }
     case ESTADO.RESUMEN:
       await mostrarResumen(chatId, convo);
       break;
@@ -554,21 +636,34 @@ async function confirmar(chatId: number, convo: TelegramConversacion): Promise<v
       answers: parcial.answers,
       lat: convo.ubicacionLat,
       lng: convo.ubicacionLng,
-      fotoFileId: convo.fotoFileId,
+      fotoFileIds: parcial.fotoFileIds ?? [],
+      telefono: convo.telefono,
     });
     await finalizar(chatId, convo.messageId, codigo);
   } catch (err) {
     if (err instanceof ConflictError) {
       // Ya existia un reporte para esta ancla: confirmacion repetida, la
-      // tratamos como exito idempotente.
-      await finalizar(chatId, convo.messageId, anchor.validacionSmsId);
+      // tratamos como exito idempotente reusando su codigo publico.
+      const codigo = await persistencia.codigoPublicoPorAnchor(anchor.validacionSmsId);
+      if (codigo) {
+        await finalizar(chatId, convo.messageId, codigo);
+        return;
+      }
+    }
+    if (err instanceof TooManyRequestsError) {
+      // Limite anti-abuso (reportes/24h): reintentar "Confirmar" no ayuda, asi
+      // que damos un mensaje claro en vez del generico de reintento.
+      await sendMessage(chatId, M.limiteReportes(err.message));
       return;
     }
+    // El controller no ve este error (no re-lanzamos): logueamos para diagnostico.
+    const detalle = err instanceof Error ? err.message : 'error desconocido';
+    console.error(`[telegram] error al persistir reporte (chat ${chatId}): ${detalle}`);
     await sendMessage(chatId, M.ERROR_PERSISTENCIA);
   }
 }
 
-async function finalizar(chatId: number, messageId: number | null, codigo: number): Promise<void> {
+async function finalizar(chatId: number, messageId: number | null, codigo: string): Promise<void> {
   await guardarConvo(chatId, { estado: ESTADO.COMPLETADO });
   const texto = M.reporteCreado(codigo);
   if (messageId) {
@@ -617,7 +712,6 @@ async function upsertConvo(
     respuestasParciales: Parcial;
     ubicacionLat: number | null;
     ubicacionLng: number | null;
-    fotoFileId: string | null;
     messageId: number | null;
   },
 ): Promise<void> {
@@ -645,7 +739,6 @@ async function guardarConvo(
     respuestasParciales: Parcial;
     ubicacionLat: number | null;
     ubicacionLng: number | null;
-    fotoFileId: string | null;
     messageId: number | null;
   }>,
 ): Promise<void> {
@@ -670,6 +763,7 @@ function leerParcial(convo: TelegramConversacion): Parcial {
     answers: raw?.answers ?? {},
     anchorValidacionSmsId: raw?.anchorValidacionSmsId,
     repetir: raw?.repetir,
+    fotoFileIds: raw?.fotoFileIds ?? [],
   };
 }
 

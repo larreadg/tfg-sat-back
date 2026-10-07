@@ -5,9 +5,9 @@ import { CitizenLoginBody, CitizenVerificarBody } from './citizen-auth.validatio
 
 export async function login(req: Request, res: ExpressResponse, next: NextFunction): Promise<void> {
   try {
-    const { telefono, captcha } = req.body as CitizenLoginBody;
+    const { telefono, turnstileToken } = req.body as CitizenLoginBody;
     const ip = req.ip ?? req.socket.remoteAddress ?? '';
-    const preAuthToken = await ciudadanoAuthService.login(ip, telefono, captcha);
+    const preAuthToken = await ciudadanoAuthService.login(ip, telefono, turnstileToken);
     res.status(200).json(ApiResponse.success(200, { preAuthToken }, 'Codigo de verificacion enviado correctamente.'));
   } catch (err) {
     next(err);

@@ -15,7 +15,8 @@ import {
   TokenStage,
 } from './auth.types';
 import * as dobleFactorService from './doble-factor.service';
-import * as captchaService from '../../shared/services/captcha.service';
+import { verificarTurnstile } from '../../shared/services/turnstile.service';
+import { registrarAuditoria } from '../auditoria/auditoria.registro';
 
 type UsuarioConPermisos = Prisma.UsuarioGetPayload<{
   include: {
@@ -28,17 +29,48 @@ export async function login(
   ip: string,
   correoElectronico: string,
   contrasena: string,
-  captcha: string,
+  turnstileToken: string,
 ): Promise<string> {
-  await captchaService.verifyCaptcha(ip, captcha);
+  // Gate anti-bot antes de tocar credenciales: encarece el fuerza bruta.
+  await verificarTurnstile(turnstileToken, ip);
 
   const usuario = await prisma.usuario.findUnique({ where: { correoElectronico } });
 
   if (!usuario || !usuario.activo || !verifyPassword(contrasena, usuario.hashContrasena)) {
+    // El rechazo se audita SIEMPRE, y con el detalle de por que: la secuencia de
+    // intentos fallidos contra un correo valido es la unica senal de un ataque de
+    // fuerza bruta que sobrevive al reinicio del proceso (los logs de consola no).
+    // El motivo NO se le dice al cliente (sigue viendo "Credenciales invalidas",
+    // para no convertir el login en un oraculo de correos registrados); queda
+    // guardado para quien audita.
+    registrarAuditoria({
+      accion: 'SESION_LOGIN',
+      entidadId: usuario?.id ?? null,
+      descripcion: `Intento de inicio de sesion rechazado para ${correoElectronico}`,
+      exito: false,
+      // Si el correo no existe no hay a quien atribuir el intento: queda ANONIMO
+      // con su IP. Si existe, se le atribuye, asi el filtro por usuario muestra
+      // los intentos fallidos contra esa cuenta.
+      actor: usuario ? { tipo: 'USUARIO', usuarioId: usuario.id } : { tipo: 'ANONIMO' },
+      metadatos: {
+        correoIntentado: correoElectronico,
+        motivo: !usuario ? 'correo inexistente' : !usuario.activo ? 'usuario inactivo' : 'contrasena incorrecta',
+      },
+    });
     throw new UnauthorizedError('Credenciales invalidas.');
   }
 
   await dobleFactorService.solicitarDobleFactor(usuario.id);
+
+  // Exito del PRIMER factor: la sesion todavia no existe. El cierre del login es
+  // `SESION_DOBLE_FACTOR`; tener los dos pasos separados es lo que permite ver
+  // "paso la contrasena pero nunca completo el codigo".
+  registrarAuditoria({
+    accion: 'SESION_LOGIN',
+    entidadId: usuario.id,
+    descripcion: `Verifico su contrasena y recibio el codigo de verificacion (${correoElectronico})`,
+    actor: { tipo: 'USUARIO', usuarioId: usuario.id },
+  });
 
   return firmarPreAuthToken(usuario.id);
 }
@@ -52,9 +84,31 @@ export async function reenviarCodigo(preAuthToken: string): Promise<void> {
 export async function verificarSegundoFactor(preAuthToken: string, codigo: string): Promise<TokenPair> {
   const payload = verificarPayload(preAuthToken, 'pre-auth', env.jwtSecret);
 
-  await dobleFactorService.verificarDobleFactor(payload.usuarioId, codigo);
+  try {
+    await dobleFactorService.verificarDobleFactor(payload.usuarioId, codigo);
+  } catch (err) {
+    registrarAuditoria({
+      accion: 'SESION_DOBLE_FACTOR',
+      entidadId: payload.usuarioId,
+      descripcion: 'Codigo de verificacion en dos pasos rechazado',
+      exito: false,
+      actor: { tipo: 'USUARIO', usuarioId: payload.usuarioId },
+      // El codigo tecleado NO se guarda (y el saneador taparia la clave `codigo`
+      // igual): lo que importa es el motivo, que ya viene redactado en el error.
+      metadatos: { motivo: err instanceof Error ? err.message : 'error desconocido' },
+    });
+    throw err;
+  }
 
   const usuario = await obtenerUsuarioConPermisos(payload.usuarioId);
+
+  // Aca si hay sesion: es el punto donde el login quedo completo.
+  registrarAuditoria({
+    accion: 'SESION_DOBLE_FACTOR',
+    entidadId: usuario.id,
+    descripcion: `Inicio sesion en el panel (${usuario.correoElectronico})`,
+    actor: { tipo: 'USUARIO', usuarioId: usuario.id },
+  });
 
   return generarParDeTokens(usuario);
 }
@@ -65,12 +119,38 @@ export async function refrescarToken(refreshToken: string): Promise<TokenPair> {
   const tokenHash = hashToken(refreshToken);
   const registro = await prisma.refreshToken.findUnique({ where: { tokenHash } });
 
+  // La renovacion EXITOSA no se audita: ocurre cada pocos minutos por usuario
+  // conectado y llenaria la bitacora de filas donde no paso nada (ver el apartado
+  // "Que NO se audita" en `auditoria.acciones.ts`). El RECHAZO si: un refresh
+  // revocado que alguien intenta reusar es la senal de un token robado.
   if (!registro || registro.revocado || registro.usuarioId !== payload.usuarioId) {
+    registrarAuditoria({
+      accion: 'SESION_REFRESH_RECHAZADO',
+      entidadId: registro?.id ?? null,
+      descripcion: 'Se rechazo la renovacion de una sesion',
+      exito: false,
+      actor: { tipo: 'USUARIO', usuarioId: payload.usuarioId },
+      metadatos: {
+        motivo: !registro
+          ? 'el token no existe'
+          : registro.revocado
+            ? 'el token ya estaba revocado'
+            : 'el token pertenece a otro usuario',
+      },
+    });
     throw new UnauthorizedError('Refresh token invalido.');
   }
 
   if (registro.expiracion < new Date()) {
     await prisma.refreshToken.update({ where: { id: registro.id }, data: { revocado: true } });
+    registrarAuditoria({
+      accion: 'SESION_REFRESH_RECHAZADO',
+      entidadId: registro.id,
+      descripcion: 'Se rechazo la renovacion de una sesion vencida',
+      exito: false,
+      actor: { tipo: 'USUARIO', usuarioId: payload.usuarioId },
+      metadatos: { motivo: 'el token estaba vencido' },
+    });
     throw new UnauthorizedError('Refresh token expirado.');
   }
 
@@ -86,10 +166,31 @@ export function verificarAccessToken(token: string): SessionPayload {
 }
 
 export async function logout(refreshToken: string): Promise<void> {
-  await prisma.refreshToken.updateMany({
-    where: { tokenHash: hashToken(refreshToken) },
+  const tokenHash = hashToken(refreshToken);
+
+  // Se busca antes de revocar solo para saber de QUIEN es la sesion: la ruta de
+  // logout no pide token de acceso, asi que el contexto de la request no tiene
+  // actor y sin esto la salida quedaria anonima.
+  const registro = await prisma.refreshToken.findUnique({
+    where: { tokenHash },
+    select: { usuarioId: true },
+  });
+
+  const { count } = await prisma.refreshToken.updateMany({
+    where: { tokenHash },
     data: { revocado: true },
   });
+
+  // Un logout con un token que no existe o ya estaba revocado no se audita: es el
+  // caso de la pestaña duplicada que cierra sesion dos veces, no un evento.
+  if (count > 0 && registro) {
+    registrarAuditoria({
+      accion: 'SESION_CIERRE',
+      entidadId: registro.usuarioId,
+      descripcion: 'Cerro su sesion',
+      actor: { tipo: 'USUARIO', usuarioId: registro.usuarioId },
+    });
+  }
 }
 
 async function obtenerUsuarioConPermisos(usuarioId: number): Promise<UsuarioConPermisos> {

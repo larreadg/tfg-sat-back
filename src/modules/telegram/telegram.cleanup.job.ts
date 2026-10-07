@@ -1,6 +1,8 @@
 import cron from 'node-cron';
 import { prisma } from '../../config/prisma';
 import { env } from '../../config/env';
+import { registrarAuditoria } from '../auditoria/auditoria.registro';
+import { conContextoAislado } from '../auditoria/auditoria.contexto';
 
 /**
  * Recoleccion de basura del bot. La expiracion de las conversaciones es
@@ -35,7 +37,7 @@ export function iniciarJobLimpiezaTelegram(): void {
 
     ejecutando = true;
     try {
-      await limpiar();
+      await conContextoAislado(() => limpiar());
     } catch (err) {
       console.error('Error en la limpieza de Telegram', err);
     } finally {
@@ -59,4 +61,21 @@ async function limpiar(): Promise<void> {
     `Telegram: limpieza diaria -> ${conversaciones.count} conversaciones vencidas, ` +
       `${updates.count} updates antiguos.`,
   );
+
+  // UNA entrada por corrida, con los totales, y solo si borro algo. Las filas en
+  // si no se auditan (son estado efimero de una conversacion del bot, ver
+  // `auditoria.acciones.ts`): lo que se registra es que el barrido corrio, para
+  // que un bajon de datos del bot tenga una explicacion con fecha.
+  if (conversaciones.count > 0 || updates.count > 0) {
+    registrarAuditoria({
+      accion: 'TELEGRAM_LIMPIEZA',
+      descripcion: `Limpieza diaria del bot: ${conversaciones.count} conversaciones vencidas y ${updates.count} registros antiguos`,
+      actor: { tipo: 'SISTEMA', etiqueta: 'job-limpieza-telegram' },
+      metadatos: {
+        conversacionesEliminadas: conversaciones.count,
+        updatesEliminados: updates.count,
+        diasRetencionUpdates: DIAS_RETENCION_UPDATES,
+      },
+    });
+  }
 }

@@ -26,6 +26,55 @@ enum EstadoEvaluacionIa {
   ERROR
 }
 
+enum EstadoAlerta {
+  NUEVA
+  EN_REVISION
+  DERIVADA
+  CERRADA
+  DESCARTADA
+}
+
+enum EstadoPuntoCritico {
+  ACTIVO
+  RESUELTO
+}
+
+/// Eventos del dominio a los que una `ReglaWebhook` puede suscribirse. Cada valor
+/// corresponde a un punto concreto del codigo que ya existia y hoy no avisaba nada:
+///   ALERTA_CREADA             -> `sincronizarAlerta` crea una Alerta (alertas.service.ts)
+///   ALERTA_ESCALADA           -> la rama de deduplicacion le sube el nivel a una activa
+///   ALERTA_ESTADO_CAMBIADO    -> `cambiarEstadoAlerta` (NUEVA -> EN_REVISION -> ...)
+///   PUNTO_CRITICO_CONSOLIDADO -> `evaluarPuntoCritico` crea o escala un PuntoCritico
+///
+/// Sumar un valor aca obliga a: (1) emitirlo desde el service correspondiente,
+/// (2) agregarlo al catalogo de `webhooks.eventos.ts` con sus condiciones validas.
+enum EventoWebhook {
+  ALERTA_CREADA
+  ALERTA_ESCALADA
+  ALERTA_ESTADO_CAMBIADO
+  PUNTO_CRITICO_CONSOLIDADO
+}
+
+/// Que hace una regla cuando se dispara.
+enum AccionWebhook {
+  /// Manda un correo por el SMTP de `ConfiguracionNotificacion`.
+  CORREO
+  /// POST con el evento en JSON a una URL, opcionalmente firmado con HMAC-SHA256.
+  HTTP
+}
+
+/// Criticidad de una zona del mapa de riesgo. Mapea 1:1 a puntaje de F5
+/// (`PUNTAJE_F5_POR_CRITICIDAD` en criticidad.service.ts): SIN_RIESGO=1 .. CRITICA=5.
+/// Estar FUERA de toda zona vale 0, que es menos que SIN_RIESGO a proposito: una
+/// zona relevada y marcada sin riesgo es informacion, un punto sin relevar no.
+enum CriticidadZona {
+  SIN_RIESGO
+  BAJA
+  MEDIA
+  ALTA
+  CRITICA
+}
+
 model Persona {
   id                     Int      @id @default(autoincrement())
   nombres                String
@@ -77,8 +126,24 @@ model Usuario {
   encuestasActualizadas          Encuesta[]         @relation("EncuestaUsuarioActualizacion")
   respuestasCreadas              Respuesta[]        @relation("RespuestaUsuarioCreacion")
   respuestasActualizadas         Respuesta[]        @relation("RespuestaUsuarioActualizacion")
-  fechaCreacion                  DateTime           @default(now())
-  fechaActualizacion             DateTime           @updatedAt
+
+  configuracionesCriticidadCreadas        ConfiguracionCriticidad[]   @relation("ConfiguracionCriticidadUsuarioCreacion")
+  configuracionesCriticidadActualizadas   ConfiguracionCriticidad[]   @relation("ConfiguracionCriticidadUsuarioActualizacion")
+  configuracionesNotificacionActualizadas ConfiguracionNotificacion[] @relation("ConfiguracionNotificacionUsuarioActualizacion")
+  reglasWebhookCreadas                    ReglaWebhook[]              @relation("ReglaWebhookUsuarioCreacion")
+  reglasWebhookActualizadas               ReglaWebhook[]              @relation("ReglaWebhookUsuarioActualizacion")
+  cambiosEstadoAlerta                     CambioEstadoAlerta[]
+  zonasRiesgoCreadas                      ZonaRiesgo[]                @relation("ZonaRiesgoUsuarioCreacion")
+  zonasRiesgoActualizadas                 ZonaRiesgo[]                @relation("ZonaRiesgoUsuarioActualizacion")
+  comentariosAlerta                       ComentarioAlerta[]          @relation("ComentarioAlertaAutor")
+  adjuntosAlerta                          AdjuntoAlerta[]             @relation("AdjuntoAlertaAutor")
+  tareasAlertaCreadas                     TareaAlerta[]               @relation("TareaAlertaUsuarioCreacion")
+  tareasAlertaResponsable                 TareaAlerta[]               @relation("TareaAlertaResponsable")
+  tareasAlertaCompletadas                 TareaAlerta[]               @relation("TareaAlertaCompletadaPor")
+  auditoriaLogs                           AuditoriaLog[]              @relation("AuditoriaLogUsuario")
+
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
 }
 
 model Rol {
@@ -123,13 +188,6 @@ model Permiso {
   fechaActualizacion     DateTime     @updatedAt
 }
 
-model Captcha {
-  id            Int      @id @default(autoincrement())
-  ip            String
-  captcha       String
-  fechaCreacion DateTime @default(now())
-}
-
 model DobleFactor {
   id            Int      @id @default(autoincrement())
   usuarioId     Int
@@ -168,12 +226,26 @@ model RolPermiso {
 }
 
 model Encuesta {
-  id                     Int                @id @default(autoincrement())
-  nombre                 String
-  descripcion            String?
-  activo                 Boolean            @default(true)
+  id          Int     @id @default(autoincrement())
+  nombre      String
+  descripcion String?
+  activo      Boolean @default(true)
+
+  /// Version del cuestionario. Cada version es un snapshot inmutable: una vez
+  /// que se le cargaron reportes no se edita, se crea una version nueva.
+  version   Int        @unique
+  /// Version de la que se clono (null en la base).
+  origenId  Int?
+  origen    Encuesta?  @relation("EncuestaVersion", fields: [origenId], references: [id])
+  derivadas Encuesta[] @relation("EncuestaVersion")
+
+  /// Fotos exigidas por esta version. `fotosMin >= 1`: las fotos no son opcionales.
+  fotosMin Int @default(1)
+  fotosMax Int @default(3)
+
   preguntas              EncuestaPregunta[]
   respuestas             Respuesta[]
+  reportes               Reporte[]
   usuarioCreacionId      Int?
   usuarioCreacion        Usuario?           @relation("EncuestaUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
   usuarioActualizacionId Int?
@@ -194,8 +266,26 @@ model EncuestaPregunta {
 }
 
 model Pregunta {
-  id                     Int                @id @default(autoincrement())
-  texto                  String
+  id    Int    @id @default(autoincrement())
+  texto String
+
+  /// Identidad ESTABLE de la pregunta (`AGUA_COLOR`, `LUGAR_REPORTE`...), a la
+  /// que se claven las reglas del motor de criticidad
+  /// (`ConfiguracionCriticidad.puntajes.reglas`).
+  ///
+  /// Por que un codigo y no el `id`: cada version de encuesta DUPLICA sus
+  /// preguntas (ver `encuestas-admin.service.ts` -> `crearVersionDesde`), asi que
+  /// el `id` cambia en cada version y una regla clavada al `id` moriria al
+  /// versionar. Y por que no el `texto`: renombrar una pregunta dejaria al motor
+  /// sin encontrarla, bajando la criticidad en silencio. El codigo se HEREDA en el
+  /// clonado, asi que sobrevive a las dos cosas.
+  ///
+  /// No es `@unique` global justamente porque el mismo codigo vive en todas las
+  /// versiones de la encuesta. La unicidad que importa es POR ENCUESTA y se valida
+  /// en `encuestas-admin.service.ts` (el modelo es M-N via `EncuestaPregunta`, asi
+  /// que no hay `encuestaId` con el que expresarla aca).
+  codigo String?
+
   tipo                   TipoPregunta       @default(ELECCION_UNICA)
   activo                 Boolean            @default(true)
   encuestas              EncuestaPregunta[]
@@ -207,13 +297,25 @@ model Pregunta {
   usuarioActualizacion   Usuario?           @relation("PreguntaUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
   fechaCreacion          DateTime           @default(now())
   fechaActualizacion     DateTime           @updatedAt
+
+  @@index([codigo])
 }
 
 model PreguntaOpcion {
-  id                     Int               @id @default(autoincrement())
-  preguntaId             Int
-  pregunta               Pregunta          @relation(fields: [preguntaId], references: [id], onDelete: Cascade)
-  texto                  String
+  id         Int      @id @default(autoincrement())
+  preguntaId Int
+  pregunta   Pregunta @relation(fields: [preguntaId], references: [id], onDelete: Cascade)
+  texto      String
+
+  /// Identidad estable de la opcion dentro de su pregunta (`VERDE_ALGAS`, `SI`,
+  /// `NO_SABE`). Misma razon que `Pregunta.codigo`: las tablas de puntaje de
+  /// `ConfiguracionCriticidad` se clavan a esto, no al texto (que el analista puede
+  /// corregir) ni al `id` (que cambia en cada version de encuesta).
+  ///
+  /// Aca si se puede exigir unicidad en el schema, porque la opcion SI cuelga de
+  /// una pregunta concreta.
+  codigo String?
+
   orden                  Int               @default(0)
   activo                 Boolean           @default(true)
   respuestas             RespuestaOpcion[]
@@ -223,6 +325,8 @@ model PreguntaOpcion {
   usuarioActualizacion   Usuario?          @relation("PreguntaOpcionUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
   fechaCreacion          DateTime          @default(now())
   fechaActualizacion     DateTime          @updatedAt
+
+  @@unique([preguntaId, codigo])
 }
 
 model ValidacionSms {
@@ -235,8 +339,7 @@ model ValidacionSms {
   verificado         Boolean           @default(false)
   usuarioCiudadanoId Int?
   usuarioCiudadano   UsuarioCiudadano? @relation(fields: [usuarioCiudadanoId], references: [id])
-  respuestas         Respuesta[]
-  evaluacionIa       EvaluacionIa?
+  reporte            Reporte?
   fechaCreacion      DateTime          @default(now())
 }
 
@@ -246,12 +349,57 @@ model UsuarioCiudadano {
   telegramChatId         BigInt?         @unique
   validaciones           ValidacionSms[]
   respuestas             Respuesta[]
+  reportes               Reporte[]
   usuarioCreacionId      Int?
   usuarioCreacion        Usuario?        @relation("UsuarioCiudadanoUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
   usuarioActualizacionId Int?
   usuarioActualizacion   Usuario?        @relation("UsuarioCiudadanoUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
   fechaCreacion          DateTime        @default(now())
   fechaActualizacion     DateTime        @updatedAt
+}
+
+/// Un "reporte" es la unidad de agrupacion de un envio ciudadano (ERS §4.3,
+/// opcion 1): agrupa las `Respuesta` (una por pregunta), su `EvaluacionIa` (1:1)
+/// y el `DesgloseFactores` de criticidad. `codigoPublico` es el identificador
+/// que se le devuelve al ciudadano y se consulta en el endpoint publico de
+/// estado. `validacionSmsId` solo aplica al canal WEB (OTP); en TELEGRAM/WHATSAPP
+/// es null. `criticidad`/`nivelPreliminar` los completa el motor (Fase B).
+model Reporte {
+  id                 Int               @id @default(autoincrement())
+  codigoPublico      String            @unique
+  canal              Canal
+  encuestaId         Int
+  encuesta           Encuesta          @relation(fields: [encuestaId], references: [id])
+  usuarioCiudadanoId Int
+  usuarioCiudadano   UsuarioCiudadano  @relation(fields: [usuarioCiudadanoId], references: [id])
+  validacionSmsId    Int?              @unique
+  validacionSms      ValidacionSms?    @relation(fields: [validacionSmsId], references: [id])
+  descripcion        String?
+  latitud            Float
+  longitud           Float
+  /// Ubicacion legible resuelta por geocodificacion inversa (ver
+  /// `shared/services/geocoding.service.ts`). Todo opcional: el proveedor puede
+  /// fallar, o la coordenada caer donde OSM no tiene barrio/calle mapeados. La
+  /// fuente de verdad geografica siguen siendo `latitud`/`longitud`.
+  pais               String?
+  departamento       String?
+  distrito           String?
+  barrio             String?
+  calle              String?
+  direccion          String?
+  geoFuente          String?
+  geoFecha           DateTime?
+  criticidad         Decimal?          @db.Decimal(4, 2)
+  nivelPreliminar    Int?
+  respuestas         Respuesta[]
+  evaluacionIa       EvaluacionIa?
+  desgloseFactores   DesgloseFactores?
+  alertas            Alerta[]
+  fechaCreacion      DateTime          @default(now())
+  fechaActualizacion DateTime          @updatedAt
+
+  @@index([usuarioCiudadanoId])
+  @@index([fechaCreacion])
 }
 
 model Respuesta {
@@ -261,8 +409,8 @@ model Respuesta {
   encuesta               Encuesta           @relation(fields: [encuestaId], references: [id])
   usuarioCiudadanoId     Int
   usuarioCiudadano       UsuarioCiudadano   @relation(fields: [usuarioCiudadanoId], references: [id])
-  validacionSmsId        Int?
-  validacionSms          ValidacionSms?     @relation(fields: [validacionSmsId], references: [id])
+  reporteId              Int
+  reporte                Reporte            @relation(fields: [reporteId], references: [id], onDelete: Cascade)
   preguntaId             Int
   pregunta               Pregunta           @relation(fields: [preguntaId], references: [id])
   latitud                Float
@@ -276,6 +424,8 @@ model Respuesta {
   usuarioActualizacion   Usuario?           @relation("RespuestaUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
   fechaCreacion          DateTime           @default(now())
   fechaActualizacion     DateTime           @updatedAt
+
+  @@index([reporteId])
 }
 
 model RespuestaOpcion {
@@ -300,8 +450,8 @@ model RespuestaArchivo {
 
 model EvaluacionIa {
   id                 Int                @id @default(autoincrement())
-  validacionSmsId    Int                @unique
-  validacionSms      ValidacionSms      @relation(fields: [validacionSmsId], references: [id])
+  reporteId          Int                @unique
+  reporte            Reporte            @relation(fields: [reporteId], references: [id], onDelete: Cascade)
   estado             EstadoEvaluacionIa @default(PENDIENTE)
   riesgoScore        Int?
   resumen            String?
@@ -325,6 +475,210 @@ model EvaluacionIaFoto {
   descripcion        String
   riesgoFoto         Int
   fechaCreacion      DateTime         @default(now())
+}
+
+/// Desglose trazable de los factores de criticidad (F1..F5) calculados para un
+/// reporte, con la `configId` de la `ConfiguracionCriticidad` usada. Es la
+/// evidencia de por que un reporte quedo en un nivel dado (ERS §5.1).
+model DesgloseFactores {
+  id                  Int                     @id @default(autoincrement())
+  reporteId           Int                     @unique
+  reporte             Reporte                 @relation(fields: [reporteId], references: [id], onDelete: Cascade)
+  f1                  Decimal?                @db.Decimal(4, 2)
+  f2                  Decimal?                @db.Decimal(4, 2)
+  f3                  Decimal?                @db.Decimal(4, 2)
+  f4                  Decimal?                @db.Decimal(4, 2)
+  f5                  Decimal?                @db.Decimal(4, 2)
+  bonusVulnerabilidad Decimal                 @default(0) @db.Decimal(4, 2)
+  configId            Int
+  configuracion       ConfiguracionCriticidad @relation(fields: [configId], references: [id])
+  fechaCreacion       DateTime                @default(now())
+}
+
+/// Parametros del motor de criticidad, VERSIONADOS e inmutables (ERS §4.4, §5).
+/// Nunca se hardcodean: cada calculo referencia la version usada. `activa`
+/// marca la version vigente (debe haber a lo sumo una activa).
+model ConfiguracionCriticidad {
+  id                     Int                @id @default(autoincrement())
+  version                Int                @unique
+  pesos                  Json // {f1,f2,f3,f4,f5}
+  puntajes               Json // tablas de §5.2
+  umbralesNivel          Json // {n1,n2,n3}
+  radioMetros            Int                @default(500)
+  ventanaDias            Int                @default(7)
+  minReportes            Int                @default(3)
+  limitesAntiabuso       Json // {otpPorHora, reportesPor24h}
+  bonusVulnerable        Decimal            @default(0.5) @db.Decimal(4, 2)
+  activa                 Boolean            @default(false)
+  desgloses              DesgloseFactores[]
+  usuarioCreacionId      Int?
+  usuarioCreacion        Usuario?           @relation("ConfiguracionCriticidadUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId Int?
+  usuarioActualizacion   Usuario?           @relation("ConfiguracionCriticidadUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion          DateTime           @default(now())
+  fechaActualizacion     DateTime           @updatedAt
+}
+
+/// Como sale un correo del sistema. FILA UNICA (`id` siempre 1): no se versiona
+/// como `ConfiguracionCriticidad` porque ningun dato historico depende de ella.
+///
+/// Tiene DOS GRUPOS DE COLUMNAS CON DUENOS DISTINTOS, y por eso dos endpoints
+/// escriben esta misma fila tocando columnas disjuntas:
+///   - transporte (`smtp*`)      -> tab Configuracion > Sistema, `/configuracion/notificaciones`
+///   - identidad (`remitente*`)  -> pantalla Webhooks,          `/webhooks/remitente`
+/// La razon es que el transporte es infraestructura y el remitente es la cara
+/// visible de las notificaciones: se configuran en momentos distintos y por
+/// gente que piensa en cosas distintas.
+///
+/// `smtpSecreto` guarda la contrasena SMTP CIFRADA con AES-256-GCM
+/// (`shared/utils/crypto.ts`, formato `aesgcm:iv:tag:ciphertext`), nunca en
+/// claro, y la API NO la devuelve en ninguna respuesta: solo informa si existe.
+model ConfiguracionNotificacion {
+  id                     Int      @id @default(1)
+  smtpHabilitado         Boolean  @default(false)
+  smtpHost               String   @default("")
+  smtpPuerto             Int      @default(587)
+  /// NINGUNA | STARTTLS | SSL_TLS. Decide `secure` e `ignoreTLS` de nodemailer.
+  smtpSeguridad          String   @default("STARTTLS")
+  smtpUsuario            String   @default("")
+  /// Cifrado AES-256-GCM. `null` = SMTP sin autenticacion.
+  smtpSecreto            String?
+  /// Nombre visible del From. Se edita en la pantalla Webhooks, no en Sistema.
+  remitenteNombre        String   @default("")
+  /// Correo del From. Si queda vacio se usa `smtpUsuario` (varios servidores
+  /// exigen que el From sea la cuenta autenticada, asi que es un default sensato).
+  remitenteCorreo        String   @default("")
+  usuarioActualizacionId Int?
+  usuarioActualizacion   Usuario? @relation("ConfiguracionNotificacionUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion          DateTime @default(now())
+  fechaActualizacion     DateTime @updatedAt
+}
+
+/// Alerta generada cuando un reporte alcanza Nivel >= 2 o cuando un punto
+/// critico se consolida/escala (ERS §5.4). `reporteId` XOR `puntoCriticoId`.
+model Alerta {
+  id                 Int                  @id @default(autoincrement())
+  reporteId          Int?
+  reporte            Reporte?             @relation(fields: [reporteId], references: [id], onDelete: Cascade)
+  puntoCriticoId     Int?
+  puntoCritico       PuntoCritico?        @relation(fields: [puntoCriticoId], references: [id], onDelete: Cascade)
+  nivel              Int
+  estado             EstadoAlerta         @default(NUEVA)
+  motivo             String
+  cambios            CambioEstadoAlerta[]
+  comentarios        ComentarioAlerta[]
+  adjuntos           AdjuntoAlerta[]
+  tareas             TareaAlerta[]
+  fechaCreacion      DateTime             @default(now())
+  fechaActualizacion DateTime             @updatedAt
+
+  @@index([estado])
+}
+
+/// Comentario de seguimiento de una alerta: la bitacora de lo que se hizo sobre
+/// ella (inspeccion, respuesta del organismo, decision). Es INMUTABLE, igual que
+/// `CambioEstadoAlerta`: no se edita ni se borra, solo se agrega.
+model ComentarioAlerta {
+  id            Int             @id @default(autoincrement())
+  alertaId      Int
+  alerta        Alerta          @relation(fields: [alertaId], references: [id], onDelete: Cascade)
+  usuarioId     Int
+  usuario       Usuario         @relation("ComentarioAlertaAutor", fields: [usuarioId], references: [id])
+  cuerpo        String
+  adjuntos      AdjuntoAlerta[]
+  fechaCreacion DateTime        @default(now())
+
+  @@index([alertaId, fechaCreacion])
+}
+
+/// Archivo de seguimiento de una alerta. `comentarioId` null = se subio directo
+/// a la alerta; con valor = viajo dentro de ese comentario (se ve en los dos
+/// lados: la burbuja del comentario y la pestaña de archivos).
+///
+/// `rutaRelativa` NO es una URL publica: a diferencia de `RespuestaArchivo`, el
+/// archivo vive fuera de `uploads/` (que se sirve con express.static sin auth) y
+/// solo se entrega por endpoint autenticado. Es documentacion interna del
+/// organismo, no una foto que el ciudadano ya hizo publica.
+model AdjuntoAlerta {
+  id             Int               @id @default(autoincrement())
+  alertaId       Int
+  alerta         Alerta            @relation(fields: [alertaId], references: [id], onDelete: Cascade)
+  comentarioId   Int?
+  comentario     ComentarioAlerta? @relation(fields: [comentarioId], references: [id], onDelete: Cascade)
+  usuarioId      Int
+  usuario        Usuario           @relation("AdjuntoAlertaAutor", fields: [usuarioId], references: [id])
+  /// Nombre con el que lo subio la persona: es lo que se muestra y lo que se
+  /// devuelve en el Content-Disposition. El nombre real en disco es un UUID.
+  nombreOriginal String
+  rutaRelativa   String
+  tipoMime       String
+  tamanoBytes    Int
+  /// Decide si el front pide una miniatura con preview o un chip de descarga.
+  esImagen       Boolean           @default(false)
+  fechaCreacion  DateTime          @default(now())
+
+  @@index([alertaId, fechaCreacion])
+}
+
+/// Item de la checklist de una alerta. A diferencia del comentario, es trabajo
+/// en curso: se edita, se reordena y se borra. `fechaCompletada` y
+/// `usuarioCompletadoId` se sellan al tildarla y se limpian al destildarla.
+model TareaAlerta {
+  id                  Int       @id @default(autoincrement())
+  alertaId            Int
+  alerta              Alerta    @relation(fields: [alertaId], references: [id], onDelete: Cascade)
+  titulo              String
+  completada          Boolean   @default(false)
+  orden               Int       @default(0)
+  responsableId       Int?
+  responsable         Usuario?  @relation("TareaAlertaResponsable", fields: [responsableId], references: [id])
+  /// Fecha de calendario, no un instante: `@db.Date` a proposito. Guardarla como
+  /// timestamp arrastra corrimientos de huso (se elige el 5 y se muestra el 4).
+  /// En el wire viaja como 'YYYY-MM-DD', nunca como ISO con hora.
+  fechaVencimiento    DateTime? @db.Date
+  fechaCompletada     DateTime?
+  usuarioCompletadoId Int?
+  usuarioCompletado   Usuario?  @relation("TareaAlertaCompletadaPor", fields: [usuarioCompletadoId], references: [id])
+  usuarioCreacionId   Int
+  usuarioCreacion     Usuario   @relation("TareaAlertaUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  fechaCreacion       DateTime  @default(now())
+  fechaActualizacion  DateTime  @updatedAt
+
+  @@index([alertaId, orden])
+}
+
+/// Registro inmutable de cada transicion de estado de una alerta (auditoria de
+/// la maquina de estados, ERS §5.4). `usuarioId` = usuario interno que la operó.
+model CambioEstadoAlerta {
+  id             Int          @id @default(autoincrement())
+  alertaId       Int
+  alerta         Alerta       @relation(fields: [alertaId], references: [id], onDelete: Cascade)
+  estadoAnterior EstadoAlerta
+  estadoNuevo    EstadoAlerta
+  usuarioId      Int
+  usuario        Usuario      @relation(fields: [usuarioId], references: [id])
+  observacion    String?
+  fechaCreacion  DateTime     @default(now())
+}
+
+/// Agrupacion geografica de reportes cercanos en una ventana temporal (ERS
+/// §5.5). El centro es el centroide del grupo; el nivel se recalcula al llegar
+/// nuevos reportes.
+model PuntoCritico {
+  id                 Int                @id @default(autoincrement())
+  latitudCentro      Float
+  longitudCentro     Float
+  radioMetros        Int
+  cantidadReportes   Int
+  nivel              Int
+  estado             EstadoPuntoCritico @default(ACTIVO)
+  ventanaInicio      DateTime
+  ventanaFin         DateTime
+  alertas            Alerta[]
+  fechaCreacion      DateTime           @default(now())
+  fechaActualizacion DateTime           @updatedAt
+
+  @@index([estado])
 }
 
 /// Estado persistido de una conversacion del bot de Telegram. Vive en DB (no en
@@ -353,4 +707,264 @@ model TelegramConversacion {
 model TelegramUpdateProcesado {
   updateId      BigInt   @id
   fechaCreacion DateTime @default(now())
+}
+
+/// Regla configurable: "cuando pase <evento> y se cumpla <condicion>, hacer <accion>".
+///
+/// Es el nucleo de que las notificaciones sean DINAMICAS: agregar un aviso nuevo es
+/// crear una fila desde el panel, no tocar codigo. Las columnas de condicion y de
+/// accion son todas opcionales porque cada combinacion evento+accion usa un
+/// subconjunto distinto; que subconjunto es valido lo decide zod
+/// (`webhooks.validation.ts`), no la DB, para poder dar mensajes de error utiles.
+model ReglaWebhook {
+  id     Int           @id @default(autoincrement())
+  nombre String
+  evento EventoWebhook
+  accion AccionWebhook
+  activa Boolean       @default(true)
+
+  // --- Condiciones (null = no filtra) ---
+  /// Nivel minimo de la alerta / punto critico. No aplica a ALERTA_ESTADO_CAMBIADO.
+  nivelMinimo    Int?
+  /// Solo para ALERTA_ESTADO_CAMBIADO: estados destino que disparan. Vacio = todos.
+  estadosDestino EstadoAlerta[]
+
+  // --- Accion CORREO ---
+  /// Separados por coma. Se valida uno por uno en zod.
+  destinatarios String @default("")
+  /// Plantilla del asunto con placeholders `{{nivel}}`, `{{motivo}}`... Vacio = asunto por defecto.
+  asunto        String @default("")
+  /// Plantilla HTML del cuerpo (la escribe el ADMIN con el editor del panel). Vacio
+  /// = cuerpo autogenerado a partir de las variables del evento. Al sustituir, los
+  /// valores se escapan para HTML; ademas se deriva una version texto plano, porque
+  /// varios clientes y filtros de spam la exigen.
+  cuerpoCorreo  String @default("")
+
+  // --- Accion HTTP ---
+  url          String  @default("")
+  /// Secreto del HMAC-SHA256 con el que se firma el body, CIFRADO igual que la
+  /// contrasena SMTP. `null` = se manda sin firmar. La API nunca lo devuelve.
+  secretoFirma String?
+  /// Plantilla JSON del body. Vacio = el payload completo de AGUARD. Existe para
+  /// poder integrar con servicios que exigen una forma concreta (Slack, Teams). Al
+  /// sustituir, los valores se escapan para contexto JSON SIN agregar comillas (asi
+  /// `{{nivel}}` puede ir como numero) y el resultado se valida como JSON.
+  cuerpoHttp   String  @default("")
+
+  cabeceras CabeceraWebhook[]
+  entregas  EntregaWebhook[]
+
+  usuarioCreacionId      Int?
+  usuarioCreacion        Usuario? @relation("ReglaWebhookUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId Int?
+  usuarioActualizacion   Usuario? @relation("ReglaWebhookUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion          DateTime @default(now())
+  fechaActualizacion     DateTime @updatedAt
+
+  @@index([evento, activa])
+}
+
+/// Cabecera HTTP propia de una regla (`Authorization: Bearer ...`, `X-API-Key: ...`).
+///
+/// Tabla aparte y no un campo Json porque el VALOR es casi siempre una credencial:
+/// se guarda CIFRADO (AES-256-GCM, igual que la contrasena SMTP) y la API no lo
+/// devuelve nunca, solo informa que la cabecera existe. Con un Json seria facil
+/// filtrarlo sin darse cuenta al serializar la regla.
+model CabeceraWebhook {
+  id      Int          @id @default(autoincrement())
+  reglaId Int
+  regla   ReglaWebhook @relation(fields: [reglaId], references: [id], onDelete: Cascade)
+  nombre  String
+  /// Cifrado. Formato `aesgcm:iv:tag:ciphertext`.
+  valor   String
+
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+
+  /// Una cabecera no puede repetirse en la misma regla: el PUT la identifica por
+  /// `nombre` para saber si conserva o reemplaza su valor.
+  @@unique([reglaId, nombre])
+}
+
+/// Bitacora de cada intento de entrega. Sin esto el panel seria un formulario a
+/// ciegas: es lo unico que permite saber si el correo salio o si la URL respondio,
+/// y es la unica forma de diagnosticar una regla que "no anda" sin entrar al log
+/// del servidor. Se guarda tanto el exito como el fallo.
+model EntregaWebhook {
+  id            Int           @id @default(autoincrement())
+  reglaId       Int
+  regla         ReglaWebhook  @relation(fields: [reglaId], references: [id], onDelete: Cascade)
+  evento        EventoWebhook
+  exito         Boolean
+  /// Respuesta del destino o el error textual: "250 OK", "HTTP 200", "ENOTFOUND"...
+  detalle       String
+  duracionMs    Int
+  /// El payload exacto que se envio. Sirve de evidencia y para reproducir el caso.
+  /// NUNCA lleva PII: las alertas se identifican por `codigoPublico`, no por telefono.
+  cargaUtil     Json
+  /// `true` si la disparo el boton "Probar" del panel y no un evento real.
+  esPrueba      Boolean       @default(false)
+  fechaCreacion DateTime      @default(now())
+
+  @@index([reglaId, fechaCreacion])
+}
+
+/// Cache de geocodificacion inversa. La clave es la coordenada redondeada a 4
+/// decimales (~11 m), asi los reportes de una misma cuadra reutilizan la misma
+/// resolucion y no se le pega al proveedor externo una vez por reporte
+/// (Nominatim publico limita a 1 req/s). `crudo` guarda la respuesta original
+/// para poder re-mapear campos sin volver a consultar.
+model GeocodificacionCache {
+  clave         String   @id
+  latitud       Float
+  longitud      Float
+  pais          String?
+  departamento  String?
+  distrito      String?
+  barrio        String?
+  calle         String?
+  direccion     String?
+  fuente        String
+  crudo         Json?
+  fechaCreacion DateTime @default(now())
+}
+
+/// Zona del MAPA DE RIESGO: un poligono dibujado por el analista sobre el mapa,
+/// con su criticidad. Es la fuente de F5 (ERS §5.1).
+///
+/// A diferencia de `PuntoCritico` -- que el sistema DERIVA de los reportes y que
+/// ya es lo que mide F1 -- esta capa se carga a mano y es independiente de los
+/// reportes: por eso puede aportar informacion nueva al calculo sin duplicar F1.
+///
+/// `poligono` es un array JSON de vertices `[{ lat, lng }, ...]`, en orden, sin
+/// repetir el primero al final (el cierre es implicito). Se guarda como Json y no
+/// como geometria PostGIS porque el unico calculo que hace falta es
+/// punto-en-poligono, que se resuelve en memoria (`shared/utils/geo.ts`) sobre
+/// un volumen de zonas que es de decenas, no de millones.
+///
+/// `bbox*` son el rectangulo que envuelve al poligono, precalculado al guardar:
+/// permite descartar la gran mayoria de las zonas con cuatro comparaciones antes
+/// de correr el algoritmo de punto-en-poligono.
+model ZonaRiesgo {
+  id          Int            @id @default(autoincrement())
+  nombre      String
+  descripcion String?
+  criticidad  CriticidadZona
+  poligono    Json
+  bboxMinLat  Float
+  bboxMaxLat  Float
+  bboxMinLng  Float
+  bboxMaxLng  Float
+  activo      Boolean        @default(true)
+
+  usuarioCreacionId      Int?
+  usuarioCreacion        Usuario? @relation("ZonaRiesgoUsuarioCreacion", fields: [usuarioCreacionId], references: [id])
+  usuarioActualizacionId Int?
+  usuarioActualizacion   Usuario? @relation("ZonaRiesgoUsuarioActualizacion", fields: [usuarioActualizacionId], references: [id])
+  fechaCreacion          DateTime @default(now())
+  fechaActualizacion     DateTime @updatedAt
+
+  @@index([activo])
+}
+
+/// Operacion de datos que representa una entrada de auditoria. Es el "que tipo
+/// de cosa paso", deliberadamente corto: el QUE exacto lo dice `accion`
+/// (`usuario.crear`, `alerta.estado_cambiar`...), que es un string del catalogo
+/// de `modules/auditoria/auditoria.acciones.ts` y no un enum, para que sumar una
+/// accion nueva no obligue a una migracion.
+///
+/// ACCESO no escribe datos de dominio (login, logout, descarga de un adjunto
+/// interno), pero es justamente lo que un auditor viene a buscar primero, asi
+/// que vive en la misma tabla y no en un log aparte.
+enum OperacionAuditoria {
+  CREAR
+  ACTUALIZAR
+  ELIMINAR
+  ACCESO
+}
+
+/// Quien hizo la accion. Existe porque en este sistema hay tres clases de actor
+/// con identidades que no son comparables: un usuario del panel (tiene `Usuario`),
+/// un ciudadano (solo tiene telefono, que es PII) y el propio sistema (los jobs de
+/// IA, criticidad y alertas, que escriben sin que nadie pida nada).
+enum ActorAuditoria {
+  USUARIO
+  CIUDADANO
+  SISTEMA
+  /// Nadie identificado: un intento de login rechazado contra un correo que no
+  /// existe. No es SISTEMA (no lo hizo un job) ni USUARIO (no hay a quien
+  /// atribuirselo); lo unico que queda es la IP, que la fila guarda igual. Sin
+  /// este valor, los ataques de fuerza bruta se registrarian como actividad del
+  /// propio sistema, que es exactamente la lectura equivocada.
+  ANONIMO
+}
+
+/// Bitacora de auditoria: una fila por cada accion que ESCRIBE en el sistema
+/// (crear, modificar, eliminar) mas los accesos sensibles (login/logout y la
+/// descarga de documentos internos de una alerta).
+///
+/// Es **inmutable y generica a proposito**:
+///   - Inmutable: no hay endpoint de PUT ni DELETE, igual que `CambioEstadoAlerta`
+///     y `ComentarioAlerta`. Un log que se puede editar no sirve como evidencia.
+///   - Generica: no se referencia la entidad auditada con una FK (serian 30
+///     columnas opcionales y una migracion por modelo nuevo), sino con el par
+///     `entidad` + `entidadId` en texto. `entidadId` es String para aceptar
+///     claves compuestas (`UsuarioRol`: "3:1") y no numericas.
+///
+/// El actor se guarda **desnormalizado** (`usuarioCorreo`, `usuarioNombre`): la FK
+/// a `Usuario` es opcional y `onDelete: SetNull`, asi que si manana se borra el
+/// usuario la fila sigue diciendo quien fue. Ese es el punto de una auditoria.
+///
+/// `datosPrevios`/`datosNuevos` pasan SIEMPRE por el saneador de
+/// `auditoria.registro.ts`, que reemplaza por "[oculto]" todo campo sensible
+/// (hashes, codigos OTP, secretos de firma, contrasenas SMTP). Un log de
+/// auditoria que copia el hash de una contrasena es una filtracion con otro
+/// nombre.
+model AuditoriaLog {
+  id          Int                @id @default(autoincrement())
+  fecha       DateTime           @default(now())
+  /// Accion del catalogo (`<recurso>.<accion>`, p.ej. `alerta.estado_cambiar`).
+  accion      String
+  operacion   OperacionAuditoria
+  /// Nombre del modelo Prisma afectado ("Usuario", "Alerta"). Texto, no FK.
+  entidad     String
+  /// Id del registro afectado, como texto. Null cuando la accion no apunta a una
+  /// fila concreta (un login fallido, un envio de correo de prueba).
+  entidadId   String?
+  /// Frase corta ya redactada para mostrar en el panel ("Cambio el estado de la
+  /// alerta #12 de NUEVA a EN_REVISION"). Se guarda armada y no se recalcula:
+  /// tiene que seguir leyendose igual dentro de dos anios.
+  descripcion String
+  /// `false` cuando la accion se intento y fallo (login rechazado, OTP invalido).
+  /// Un intento fallido es informacion de auditoria, no una fila que falte.
+  exito       Boolean            @default(true)
+
+  actorTipo     ActorAuditoria
+  usuarioId     Int?
+  usuario       Usuario?       @relation("AuditoriaLogUsuario", fields: [usuarioId], references: [id], onDelete: SetNull)
+  /// Snapshot del actor al momento de la accion (sobrevive al borrado del usuario).
+  usuarioCorreo String?
+  usuarioNombre String?
+  /// Identificador del actor cuando no es un `Usuario`: telefono ENMASCARADO del
+  /// ciudadano ("+5959***123") o el nombre del proceso ("job-evaluacion-ia").
+  actorEtiqueta String?
+
+  ip         String?
+  userAgent  String?
+  metodoHttp String?
+  ruta       String?
+  /// Correlaciona todas las entradas generadas por una misma request HTTP.
+  requestId  String?
+
+  datosPrevios Json?
+  datosNuevos  Json?
+  /// Contexto extra que no es "antes/despues" (cantidad de filas afectadas,
+  /// motivo, duracion). Saneado igual que los otros dos.
+  metadatos    Json?
+
+  @@index([fecha])
+  @@index([accion, fecha])
+  @@index([usuarioId, fecha])
+  @@index([entidad, entidadId])
+  @@index([operacion, fecha])
 }

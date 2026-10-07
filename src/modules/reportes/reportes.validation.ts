@@ -12,8 +12,12 @@ const respuestaItemSchema = z.object({
  */
 export const guardarRespuestasSchema = z.object({
   encuestaId: z.coerce.number().int().positive().optional(),
+  // Token de Cloudflare Turnstile (RF-29): el envio del reporte tambien pasa
+  // por el gate anti-bot, no solo la validacion del telefono.
+  turnstileToken: z.string().trim().min(1),
   latitud: z.coerce.number().min(-90).max(90),
   longitud: z.coerce.number().min(-180).max(180),
+  descripcion: z.string().trim().max(1000).optional(),
   respuestas: z
     .string()
     .transform((valor, ctx) => {

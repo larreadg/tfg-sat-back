@@ -1,13 +1,16 @@
 import { Canal } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { guardarRespuestas } from '../reportes/reportes.service';
-import { CiudadanoSessionPayload } from '../citizen-auth/citizen-auth.types';
+import { OrigenReporte } from '../reportes/reportes.types';
 import { descargarArchivo } from './telegram.api';
 
 /**
- * Puente de persistencia del bot: crea el ancla (UsuarioCiudadano + ValidacionSms)
- * que el resto del sistema usa para agrupar un reporte y dispara el MISMO caso
- * de uso que el flujo web (`guardarRespuestas`), marcando el canal TELEGRAM.
+ * Puente de persistencia del bot: asegura el ciudadano y un ancla `ValidacionSms`
+ * (sin OTP real) que sirve de clave de idempotencia del envio, y dispara el
+ * MISMO caso de uso que el flujo web (`guardarRespuestas`) marcando canal
+ * TELEGRAM. El `Reporte` resultante queda linkeado a esa ancla por
+ * `validacionSmsId` (unico), de modo que un reintento del "confirmar" no crea un
+ * reporte duplicado.
  */
 
 export interface Anchor {
@@ -20,7 +23,9 @@ export interface DatosReporte {
   answers: Record<string, number>; // preguntaId -> preguntaOpcionId
   lat: number;
   lng: number;
-  fotoFileId: string | null;
+  fotoFileIds: string[]; // 0..MAX_FOTOS fotos que el ciudadano cargo en el paso de foto
+  /** Solo para identificar al actor en la auditoria (se guarda enmascarado). */
+  telefono: string;
 }
 
 /**
@@ -85,7 +90,7 @@ export async function buscarCiudadanoPorChat(chatId: bigint): Promise<CiudadanoC
 }
 
 export interface ReporteAnterior {
-  validacionSmsId: number;
+  reporteId: number;
   fecha: Date;
   encuestaId: number;
   answers: Record<string, number>; // preguntaId -> preguntaOpcionId
@@ -93,23 +98,24 @@ export interface ReporteAnterior {
 }
 
 /**
- * Ultimo reporte enviado por un ciudadano, reconstruido desde sus `Respuesta`.
- * Sirve para dos cosas: mostrarle un resumen de lo que reporto antes y, si la
- * encuesta activa no cambio, ofrecerle reenviar lo mismo cambiando solo la
- * ubicacion. Devuelve null si no tiene reportes con respuestas de opcion.
+ * Ultimo reporte enviado por un ciudadano, reconstruido desde su `Reporte` +
+ * `Respuesta`. Sirve para dos cosas: mostrarle un resumen de lo que reporto
+ * antes y, si la encuesta activa no cambio, ofrecerle reenviar lo mismo
+ * cambiando solo la ubicacion. Devuelve null si no tiene reportes con
+ * respuestas de opcion.
  */
 export async function ultimoReporte(usuarioCiudadanoId: number): Promise<ReporteAnterior | null> {
-  const ultima = await prisma.respuesta.findFirst({
-    where: { usuarioCiudadanoId, validacionSmsId: { not: null } },
+  const ultimo = await prisma.reporte.findFirst({
+    where: { usuarioCiudadanoId },
     orderBy: { fechaCreacion: 'desc' },
-    select: { validacionSmsId: true, encuestaId: true, fechaCreacion: true },
+    select: { id: true, encuestaId: true, fechaCreacion: true },
   });
-  if (!ultima || ultima.validacionSmsId == null) {
+  if (!ultimo) {
     return null;
   }
 
   const respuestas = await prisma.respuesta.findMany({
-    where: { validacionSmsId: ultima.validacionSmsId },
+    where: { reporteId: ultimo.id },
     include: {
       pregunta: true,
       opciones: { include: { preguntaOpcion: true } },
@@ -134,12 +140,24 @@ export async function ultimoReporte(usuarioCiudadanoId: number): Promise<Reporte
   }
 
   return {
-    validacionSmsId: ultima.validacionSmsId,
-    fecha: ultima.fechaCreacion,
-    encuestaId: ultima.encuestaId,
+    reporteId: ultimo.id,
+    fecha: ultimo.fechaCreacion,
+    encuestaId: ultimo.encuestaId,
     answers,
     lineasResumen,
   };
+}
+
+/**
+ * Codigo publico del reporte asociado a un ancla (para la rama idempotente del
+ * "confirmar" repetido). Devuelve null si aun no se creo el reporte.
+ */
+export async function codigoPublicoPorAnchor(validacionSmsId: number): Promise<string | null> {
+  const reporte = await prisma.reporte.findUnique({
+    where: { validacionSmsId },
+    select: { codigoPublico: true },
+  });
+  return reporte?.codigoPublico ?? null;
 }
 
 export async function recuperarAnchor(validacionSmsId: number): Promise<Anchor | null> {
@@ -151,12 +169,13 @@ export async function recuperarAnchor(validacionSmsId: number): Promise<Anchor |
 }
 
 /**
- * Persiste el reporte reutilizando `guardarRespuestas`. Devuelve el codigo de
- * seguimiento (validacionSmsId). Propaga los errores para que el llamador
- * decida (reintento / idempotencia).
+ * Persiste el reporte reutilizando `guardarRespuestas`. Devuelve el codigo
+ * publico de seguimiento. Propaga los errores para que el llamador decida
+ * (reintento / idempotencia).
  */
-export async function persistirReporte(anchor: Anchor, datos: DatosReporte): Promise<number> {
-  const archivos = datos.fotoFileId ? [await descargarFotoComoArchivo(datos.fotoFileId)] : [];
+export async function persistirReporte(anchor: Anchor, datos: DatosReporte): Promise<string> {
+  // Bajamos todas las fotos en paralelo; guardarRespuestas valida el tope (MAX_FOTOS).
+  const archivos = await Promise.all(datos.fotoFileIds.map(descargarFotoComoArchivo));
 
   const input = {
     encuestaId: datos.encuestaId,
@@ -168,15 +187,14 @@ export async function persistirReporte(anchor: Anchor, datos: DatosReporte): Pro
     })),
   };
 
-  const payload: CiudadanoSessionPayload = {
-    etapa: 'ciudadano-session',
+  const origen: OrigenReporte = {
     usuarioCiudadanoId: anchor.usuarioCiudadanoId,
-    telefono: '',
     validacionSmsId: anchor.validacionSmsId,
+    telefono: datos.telefono,
   };
 
-  const reporte = await guardarRespuestas(payload, input, archivos, Canal.TELEGRAM);
-  return reporte.validacionSmsId;
+  const reporte = await guardarRespuestas(origen, input, archivos, Canal.TELEGRAM);
+  return reporte.codigoPublico;
 }
 
 /**

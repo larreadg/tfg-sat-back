@@ -15,4 +15,8 @@ router.post(
   reporteCiudadanoController.guardarRespuestas,
 );
 
+// Consulta publica del estado de un reporte por su codigo (sin auth, sin
+// telefono). ERS §8: GET /reportes/:codigoPublico/estado.
+router.get('/:codigoPublico/estado', reporteCiudadanoController.obtenerEstadoPublico);
+
 export default router;

@@ -5,7 +5,7 @@ import { ResponseFormatJSONSchema } from 'openai/resources/shared';
  * `EVALUACION_IA_JSON_SCHEMA`, para poder identificar con qué prompt se generó
  * cada `EvaluacionIa` persistida.
  */
-export const PROMPT_VERSION = 1;
+export const PROMPT_VERSION = 2;
 
 /**
  * Contenido 100% estático: OpenAI cachea automáticamente el prefijo del prompt
@@ -16,49 +16,28 @@ export const SYSTEM_PROMPT_EVALUACION_IA = `Sos un sistema experto en evaluació
 
 ## Cuestionario de referencia (calidad de agua)
 
-p01 - Que tipo de fuente o lugar esta reportando? (respuesta unica)
-  1 - Canilla / grifo
-  2 - Pozo
-  3 - Tanque o reservorio
-  4 - Otro
-  5 - No se
+P-01 - De donde proviene el agua que estas reportando? (respuesta unica)
+  Pozo propio / Junta de Saneamiento / Agüateria privada / ESSAP (red publica) / Agua embotellada o de bidon / No se
 
-p02 - Que color o aspecto tiene el agua? (respuesta unica)
-  1 - Normal / sin cambios
-  2 - Amarilla o marron (hierro o sedimento)
-  3 - Verde (algas)
-  4 - Oscura, negra o gris (manganeso o sulfuros)
-  5 - Blanquecina o lechosa (turbidez o aire)
-  6 - Otro
+P-02 - Cual es el lugar de reporte? (respuesta unica)
+  Vivienda / Oficina laboral / Escuela / Hospital o puesto de salud / Empresa / Club
 
-p03 - El agua tiene algun olor distinto al habitual? (respuesta unica)
-  1 - No, sin olor raro
-  2 - A cloro fuerte
-  3 - A huevo podrido / azufre
-  4 - A cloaca o desague
-  5 - A combustible o quimico
-  6 - A tierra o moho
-  7 - Otro
+P-03 - Desde cuando observa el problema? (respuesta unica)
+  Ahora / Hoy / Hace varios dias / Hace semanas / Es recurrente / No sabe
 
-p04 - Notaste que el sabor del agua sea distinto al habitual? (respuesta unica)
-  1 - Si, sabor raro
-  2 - Si, sabor salado
-  3 - No, igual que siempre
-  4 - No lo probe
+P-04 - Que color o aspecto tiene el agua? (respuesta unica)
+  Normal / sin cambios; Amarilla o marron (hierro o sedimento); Verde (algas); Oscura, negra o gris (manganeso o sulfuros); Blanquecina o lechosa (turbidez o aire); Otro
 
-p05 - Alguien tuvo malestar despues del contacto o consumo? (respuesta unica)
-  1 - Si
-  2 - No
-  3 - No se
+P-05 - A simple vista, se observan particulas, sedimentos o material en suspension en el agua? (respuesta unica)
+  Si / No
 
-p06 - Desde cuando observa el problema? (respuesta unica)
-  1 - Recien lo noto hoy
-  2 - Hace unos dias
-  3 - Hace una semana o mas
-  4 - Ya me habia pasado antes / es recurrente
-  5 - No se
+P-06 - Notaste que el sabor del agua sea distinto al habitual? (respuesta unica)
+  Si, sabor raro / Si, sabor salado / No, igual que siempre / No lo probe
 
-p07 - Fotos del agua o la fuente reportada (hasta 3, opcional).
+P-07 - Alguien reporto malestar luego del contacto o consumo? (respuesta unica)
+  Si / No / No sabe
+
+Fotos del agua o la fuente reportada (hasta 3, opcional).
 
 ## Escala de riesgo (0 a 5)
 
@@ -71,12 +50,13 @@ p07 - Fotos del agua o la fuente reportada (hasta 3, opcional).
 
 ## Guía de interpretación por pregunta
 
-- Fuente (p01): pozos y tanques/reservorios sin mantenimiento son más vulnerables que la red de agua potable (canilla), aunque esta última también puede contaminarse.
-- Color/aspecto (p02): normal no suma riesgo. Amarillo/marrón sugiere sedimento u óxido (riesgo leve-moderado). Verde sugiere algas (riesgo moderado). Oscuro/negro/gris sugiere manganeso o sulfuros (riesgo moderado-alto). Blanquecino/lechoso suele ser aire o turbidez leve (riesgo bajo), salvo que se acompañe de otros síntomas.
-- Olor (p03): sin olor no suma riesgo. Cloro fuerte indica sobre-cloración (riesgo leve). Huevo podrido/azufre indica sulfuro de hidrógeno (riesgo moderado-alto). Cloaca o desagüe indica contaminación fecal (riesgo alto/severo). Combustible o químico indica contaminación industrial (riesgo alto/severo). Tierra o moho indica materia orgánica (riesgo leve-moderado).
-- Sabor (p04): sabor raro o salado suma riesgo moderado si coincide con otras señales.
-- Malestar de salud (p05): si hay malestar reportado tras contacto o consumo, esto por sí solo eleva el riesgo a moderado-alto y no puede evaluarse como bajo salvo evidencia clara de que el malestar es no relacionado.
-- Antigüedad/recurrencia (p06): un problema recurrente o sostenido en el tiempo agrava el riesgo respecto a un evento aislado y recién detectado.
+- Origen (P-01): pozos propios y aguaterías informales sin control son más vulnerables que la red pública (ESSAP) o las juntas de saneamiento, aunque cualquier fuente puede contaminarse. El agua embotellada o de bidón rara vez refleja un problema de la red.
+- Lugar de reporte (P-02): escuelas y hospitales/puestos de salud implican población sensible y consumo colectivo; un indicio en esos entornos amerita mayor prioridad de seguimiento.
+- Antigüedad/recurrencia (P-03): un problema recurrente o sostenido ("Hace semanas", "Es recurrente") agrava el riesgo respecto a un evento aislado y recién detectado ("Ahora", "Hoy").
+- Color/aspecto (P-04): normal no suma riesgo. Amarillo/marrón sugiere sedimento u óxido (riesgo leve-moderado). Verde sugiere algas (riesgo moderado). Oscuro/negro/gris sugiere manganeso o sulfuros (riesgo moderado-alto). Blanquecino/lechoso suele ser aire o turbidez leve (riesgo bajo), salvo que se acompañe de otros síntomas.
+- Partículas/sedimentos (P-05): "Si" indica material en suspensión visible, lo que eleva el riesgo, sobre todo si coincide con color anómalo o antecedentes.
+- Sabor (P-06): sabor raro o salado suma riesgo moderado si coincide con otras señales; "No lo probé" es una respuesta válida y no debe penalizarse.
+- Malestar de salud (P-07): si hay malestar reportado tras contacto o consumo, esto por sí solo eleva el riesgo a moderado-alto y no puede evaluarse como bajo salvo evidencia clara de que el malestar no está relacionado.
 
 Nunca inventes datos que no estén en el reporte. Si falta información relevante para decidir con certeza, usá tu mejor juicio experto y explicá la incertidumbre en la justificación, pero siempre asigná un puntaje entero de 0 a 5.
 
