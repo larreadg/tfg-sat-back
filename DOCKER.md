@@ -60,11 +60,11 @@ docker compose exec backend node dist/scripts/recalcular-criticidad.js
 
 ## 5. Proxy inverso
 
-El puerto se publica solo en `127.0.0.1:3000`: desde afuera se entra por el proxy, con HTTPS. En producción la API vive bajo una subruta, `https://simplifika.lat/api-aguardpy`, y el proxy se la quita antes de pasar el request: el back sigue viendo `/api/v1/...` y `/uploads/...`, así que no hay que configurar nada en la app. Ejemplo con nginx (la barra final de `location` y de `proxy_pass` es la que recorta el prefijo):
+El puerto se publica solo en `127.0.0.1:5201`: desde afuera se entra por el proxy, con HTTPS. En producción la API vive bajo una subruta, `https://simplifika.lat/api-aguardpy`, y el proxy se la quita antes de pasar el request: el back sigue viendo `/api/v1/...` y `/uploads/...`, así que no hay que configurar nada en la app. Ejemplo con nginx (la barra final de `location` y de `proxy_pass` es la que recorta el prefijo):
 
 ```nginx
 location /api-aguardpy/ {
-    proxy_pass http://127.0.0.1:3000/;
+    proxy_pass http://127.0.0.1:5201/;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;

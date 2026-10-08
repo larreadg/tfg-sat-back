@@ -21,7 +21,7 @@ services:
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
-      PORT: 3000
+      PORT: 5201
       # El TLS lo termina el proxy inverso del servidor, no el contenedor.
       USE_HTTPS: "false"
       UPLOADS_DIR: uploads
@@ -33,7 +33,7 @@ services:
     ports:
       # Por defecto solo escucha en 127.0.0.1: el acceso publico entra por el
       # proxy inverso (nginx/caddy) con HTTPS. BACK_BIND=0.0.0.0 lo expone directo.
-      - "${BACK_BIND:-127.0.0.1}:${BACK_PUERTO:-3000}:3000"
+      - "${BACK_BIND:-127.0.0.1}:5201:5201"
     volumes:
       - uploads:/app/uploads
       - adjuntos:/app/adjuntos-seguimiento
