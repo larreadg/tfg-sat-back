@@ -12,7 +12,7 @@ import {
 } from './citizen-auth.types';
 import { verificarTurnstile } from '../../shared/services/turnstile.service';
 import { obtenerLimitesAntiabuso } from '../../shared/services/limites.service';
-import { enviarSms } from '../../shared/services/sms.service';
+import { enviarCodigoVerificacion } from '../../shared/services/sms.service';
 import { registrarAuditoria } from '../auditoria/auditoria.registro';
 
 const LONGITUD_CODIGO = 4;
@@ -137,7 +137,7 @@ async function enviarCodigo(ip: string, telefono: string): Promise<void> {
   // los viejos expiran solos.
   await prisma.validacionSms.create({ data: { telefono, ip, codigo: hashCodigo(codigo), expiracion } });
 
-  await enviarSms(telefono, `Tu codigo de verificacion es ${codigo}. Vence en ${EXPIRACION_MINUTOS} minutos.`);
+  await enviarCodigoVerificacion(telefono, codigo, EXPIRACION_MINUTOS);
 }
 
 /**

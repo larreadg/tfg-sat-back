@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma';
-import { enviarSms } from '../../shared/services/sms.service';
+import { enviarCodigoVerificacion } from '../../shared/services/sms.service';
 import { NotFoundError, BadRequestError, TooManyRequestsError } from '../../shared/utils/errors';
 import { generarCodigoNumerico, hashCodigo, verificarCodigo } from '../../shared/utils/otp';
 
@@ -50,7 +50,7 @@ export async function solicitarDobleFactor(usuarioId: number): Promise<void> {
 
   await prisma.dobleFactor.create({ data: { usuarioId, codigo: hashCodigo(codigo), expiracion } });
 
-  await enviarSms(usuario.telefono, `Tu codigo de verificacion es ${codigo}. Vence en ${EXPIRACION_MINUTOS} minutos.`);
+  await enviarCodigoVerificacion(usuario.telefono, codigo, EXPIRACION_MINUTOS);
 }
 
 export async function verificarDobleFactor(usuarioId: number, codigo: string): Promise<void> {
