@@ -34,6 +34,7 @@ interface EnvConfig {
   telegramBotToken: string;
   telegramWebhookSecret: string;
   telegramWebhookPath: string;
+  telegramWebhookUrl: string;
   telegramSesionExpiracionHoras: number;
   geocodingEnabled: boolean;
   geocodingUrl: string;
@@ -66,6 +67,19 @@ function getEnvVarCondicional(key: string, requerida: boolean): string {
     return '';
   }
   return value;
+}
+
+/**
+ * URL publica completa del webhook de Telegram. Opcional: si esta, el servidor
+ * la registra al arrancar (ver telegram.bootstrap.ts). Telegram solo acepta
+ * HTTPS, asi que se valida aca y no recien cuando Telegram la rechace.
+ */
+function getTelegramWebhookUrl(): string {
+  const url = (process.env.TELEGRAM_WEBHOOK_URL || '').trim();
+  if (url && !url.startsWith('https://')) {
+    throw new Error('TELEGRAM_WEBHOOK_URL tiene que empezar con https:// (Telegram no acepta otra cosa).');
+  }
+  return url;
 }
 
 function getEnvInt(key: string, defaultValue: number): number {
@@ -136,6 +150,8 @@ export const env: EnvConfig = {
   telegramBotToken: getEnvVarCondicional('TELEGRAM_BOT_TOKEN', TELEGRAM_ENABLED),
   telegramWebhookSecret: getEnvVarCondicional('TELEGRAM_WEBHOOK_SECRET', TELEGRAM_ENABLED),
   telegramWebhookPath: process.env.TELEGRAM_WEBHOOK_PATH || '/api/v1/telegram/webhook',
+  // Solo en el servidor. En local la registra start-https.bat con la URL del tunel.
+  telegramWebhookUrl: getTelegramWebhookUrl(),
   telegramSesionExpiracionHoras: getEnvInt('TELEGRAM_SESION_EXPIRACION_HORAS', 24),
   // Geocodificacion inversa (lat/lon -> departamento/ciudad/barrio/calle). No es
   // critica: si falla, el reporte queda solo con coordenadas, por eso ninguna de
