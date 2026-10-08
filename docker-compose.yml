@@ -1,0 +1,51 @@
+# Backend de AGUARD en Docker. La base de datos NO va en este compose: vive en
+# Supabase (ver DATABASE_URL / DIRECT_URL en .env.example).
+#
+#   docker compose up -d --build     levanta (y aplica migraciones pendientes)
+#   docker compose logs -f backend   sigue los logs
+#
+# Variables: se leen de `.env` (copiar .env.example y completar con los valores
+# del servidor). Las de `environment` de abajo pisan las de `.env`: son las que
+# dependen de estar dentro de un contenedor.
+
+services:
+  backend:
+    build: .
+    image: tfg-sat-back:latest
+    container_name: tfg-sat-back
+    restart: always
+    # tini como PID 1: reenvia SIGTERM a Node para que `docker stop` no espere
+    # el timeout entero.
+    init: true
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      # El TLS lo termina el proxy inverso del servidor, no el contenedor.
+      USE_HTTPS: "false"
+      UPLOADS_DIR: uploads
+      ADJUNTOS_DIR: adjuntos-seguimiento
+      # El proxy inverso llega por la red de Docker (172.x), nunca por loopback.
+      # `uniquelocal` confia en X-Forwarded-For solo si viene de una IP privada.
+      TRUST_PROXY: ${TRUST_PROXY:-uniquelocal}
+      TZ: ${TZ:-America/Asuncion}
+    ports:
+      # Por defecto solo escucha en 127.0.0.1: el acceso publico entra por el
+      # proxy inverso (nginx/caddy) con HTTPS. BACK_BIND=0.0.0.0 lo expone directo.
+      - "${BACK_BIND:-127.0.0.1}:${BACK_PUERTO:-3000}:3000"
+    volumes:
+      - uploads:/app/uploads
+      - adjuntos:/app/adjuntos-seguimiento
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  # Fotos publicas de los reportes (se sirven sin autenticacion).
+  uploads:
+  # Adjuntos internos del seguimiento de alertas: PRIVADOS. No montar esta
+  # carpeta en ningun servidor de estaticos.
+  adjuntos:

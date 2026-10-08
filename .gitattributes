@@ -1,0 +1,3 @@
+# Los scripts de shell corren dentro del contenedor Linux: con CRLF, `#!/bin/sh`
+# falla con "not found".
+*.sh text eol=lf

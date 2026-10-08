@@ -8,3 +8,7 @@ dist/
 /adjuntos-seguimiento/
 /ssl/
 .tok
+
+# Secretos de despliegue: nunca al repo.
+test.env
+/p

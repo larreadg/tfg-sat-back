@@ -1,0 +1,31 @@
+# Dependencias y build: se generan dentro de la imagen (binarios de Linux).
+node_modules
+dist
+
+# Secretos y certificados: nunca dentro de la imagen.
+.env
+.env.*
+!.env.example
+.tok
+ssl
+certs
+
+# Datos de runtime: viven en volumenes.
+uploads
+adjuntos-seguimiento
+
+# Herramientas y documentos que no corren en el contenedor.
+.git
+.gitignore
+.claude
+.agents
+postman
+*.bat
+*.md
+*.log
+cuestionario_alerta_temprana_final.txt
+skills-lock.json
+Dockerfile
+docker-compose*.yml
+test.env
+p

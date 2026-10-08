@@ -23,8 +23,9 @@ export function crearApp(): Express {
   // prod, nginx/reverse-proxy). Sin esto, express-rate-limit ve X-Forwarded-For
   // con trust proxy=false y tira ERR_ERL_UNEXPECTED_X_FORWARDED_FOR. Confiamos
   // SOLO en el primer hop (loopback), no en `true`: con `true` cualquiera
-  // falsifica XFF y evade el rate-limit.
-  app.set('trust proxy', 'loopback');
+  // falsifica XFF y evade el rate-limit. En Docker el proxy llega por la red
+  // del contenedor, no por loopback: ahi se ajusta con TRUST_PROXY.
+  app.set('trust proxy', env.trustProxy);
 
   const uploadsPath = path.join(process.cwd(), env.uploadsDir);
   fs.mkdirSync(uploadsPath, { recursive: true });

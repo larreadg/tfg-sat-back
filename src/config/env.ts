@@ -5,6 +5,7 @@ dotenv.config();
 interface EnvConfig {
   port: number;
   host: string;
+  trustProxy: string | number;
   useHttps: boolean;
   sslKeyPath: string;
   sslCertPath: string;
@@ -81,9 +82,24 @@ function getEnvInt(key: string, defaultValue: number): number {
 
 const TELEGRAM_ENABLED = process.env.TELEGRAM_ENABLED === 'true';
 
+/**
+ * Valor de `trust proxy` de Express: un numero de saltos (`1`) o lo que acepta
+ * Express como texto (`loopback`, `uniquelocal`, IPs/subredes separadas por
+ * coma). `true` se rechaza a proposito: confia en cualquier X-Forwarded-For y
+ * cualquiera falsifica su IP para evadir el rate-limit.
+ */
+function getTrustProxy(): string | number {
+  const raw = (process.env.TRUST_PROXY || 'loopback').trim();
+  if (raw === 'true') {
+    throw new Error('TRUST_PROXY=true no esta permitido: usar un numero de saltos, "loopback", "uniquelocal" o subredes.');
+  }
+  return /^\d+$/.test(raw) ? Number(raw) : raw;
+}
+
 export const env: EnvConfig = {
   port: getEnvInt('PORT', 3000),
   host: process.env.HOST || '0.0.0.0',
+  trustProxy: getTrustProxy(),
   useHttps: process.env.USE_HTTPS === 'true',
   sslKeyPath: process.env.SSL_KEY_PATH || 'ssl/key.pem',
   sslCertPath: process.env.SSL_CERT_PATH || 'ssl/cert.pem',

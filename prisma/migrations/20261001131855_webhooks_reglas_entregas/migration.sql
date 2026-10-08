@@ -5,7 +5,10 @@ CREATE TYPE "EventoWebhook" AS ENUM ('ALERTA_CREADA', 'ALERTA_ESCALADA', 'ALERTA
 CREATE TYPE "AccionWebhook" AS ENUM ('CORREO', 'HTTP');
 
 -- AlterTable
-ALTER TABLE "ConfiguracionNotificacion" DROP COLUMN "destinatarios";
+-- IF EXISTS: esta migracion ordena ANTES que la que crea la tabla
+-- (20261001150031). En una base nueva no hace nada; la columna la borra
+-- 20261007120000_configuracion_notificacion_sin_destinatarios.
+ALTER TABLE IF EXISTS "ConfiguracionNotificacion" DROP COLUMN IF EXISTS "destinatarios";
 
 -- CreateTable
 CREATE TABLE "ReglaWebhook" (
